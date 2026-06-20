@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash \"${workspaceFolder}/scripts/session-recall-hook.sh\"",
+        "timeout": 6
+      }
+    ]
+  }
+}

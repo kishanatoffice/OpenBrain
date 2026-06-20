@@ -1,0 +1,32 @@
+# myagent configuration — env vars with the same names override these values.
+# Delete any line to fall back to the built-in default.
+
+[myagent]
+ollama_url = "http://localhost:11434"
+ollama_model = "qwen3.5:4b"        # default is "llama3"; set to a model you have pulled
+ollama_embed_model = "nomic-embed-text"
+memory_port = 3111
+vault_path = "~/.myagent/vault"
+db_path = "~/.myagent/memories.db"
+
+# Level 3 memory-injecting LLM proxy (POST /v1/chat/completions).
+# Point any tool's OpenAI-compatible base URL at http://127.0.0.1:3111/v1 and
+# every request gets relevant memory injected before reaching the real model —
+# no hook needed, works on tools whose hooks cannot inject (Cursor, JetBrains,
+# Antigravity). Fails open: if recall errors, the request is forwarded as-is.
+proxy_upstream_url = "https://api.openai.com/v1"   # the real model API to forward to
+proxy_min_relevance = 0.60                          # drop hits below this before injecting
+proxy_recall_tokens = 1000                          # token budget for the injected block
+proxy_timeout_seconds = 600                         # upstream timeout (long for streaming)
+# Preflight gate: when on, if memory relevance to the prompt is BORDERLINE
+# (between proxy_min_relevance and proxy_gate_high), the proxy answers first
+# with a small menu — "use OpenBrain" vs "skip to plain LLM" — instead of
+# guessing. Clearly-relevant injects silently; clearly-irrelevant forwards
+# plain. Off by default to keep the silent path the default experience.
+proxy_preflight = false
+proxy_gate_high = 0.78
+# Auto-capture: after a turn, an Ollama judge decides if your message held a
+# durable fact and, if so, silently stores a one-line summary (tagged 'auto',
+# reviewable/deletable in the UI). Off by default — auto-writing to permanent
+# memory is opt-in. Fails closed (no judge = nothing stored).
+proxy_autocapture = false

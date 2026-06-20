@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openbrain-memory"
+version = "0.5.0"
+description = "Your private, local-first memory for every AI tool — MCP + hooks + injecting proxy."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Kishan Kumar" }]
+keywords = ["mcp", "memory", "llm", "local-first", "ai", "claude", "cursor"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Pinned with upper bounds so a breaking upstream release can't silently land.
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn>=0.30,<1.0",
+  "httpx>=0.27,<1.0",
+]
+
+[project.optional-dependencies]
+# Document & image OCR connector (off by default). Heavy transitive deps
+# (pdfminer, python-docx/pptx, Pillow, …) live here so memory-only installs
+# stay lean: pip install 'openbrain-memory[ocr]'
+ocr = ["markitdown[all]>=0.0.1a2,<1.0"]
+
+[project.urls]
+Homepage = "https://github.com/kishankumar/openbrain"
+
+[project.scripts]
+openbrain = "myagent.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["myagent"]

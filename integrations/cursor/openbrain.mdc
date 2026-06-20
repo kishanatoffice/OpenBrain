@@ -1,0 +1,24 @@
+---
+description: OpenBrain permanent memory — recall before acting, remember after.
+alwaysApply: true
+---
+
+You have permanent local memory via the `openbrain` MCP server (tools:
+`recall`, `remember`, `forget`). It persists across every session and every
+tool. Use it automatically — the user should never have to ask.
+
+- **Before starting any task or answering any non-trivial question**, call
+  `recall` first with a short query derived from the user's request, to pull
+  past decisions, preferences, project state, people, and dates. Do this
+  before writing code or proposing a plan.
+- **After a task, or whenever a durable fact, decision, preference, or project
+  update is established**, call `remember` with a self-contained summary
+  (include dates and enough context to make sense standalone).
+
+Cursor's `beforeSubmitPrompt` hook cannot inject context, so recall here is
+enforced by this always-applied rule rather than by a hook. Honor it on every
+turn.
+
+**Opt-out:** if the user's message contains `--no-memory` (or `#nomem`), do NOT
+call `recall` for that turn — answer with the plain model — and ignore the flag
+text itself.

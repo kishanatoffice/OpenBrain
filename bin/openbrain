@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# OpenBrain CLI shim — `openbrain <cmd>` from anywhere.
+# Resolves the repo's venv python from this script's real location (following
+# symlinks), so it works after being symlinked onto your PATH.
+
+set -euo pipefail
+
+# Resolve symlinks to find the real repo directory.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+REPO="$(cd -P "$(dirname "$SOURCE")/.." >/dev/null 2>&1 && pwd)"
+PY="$REPO/.venv/bin/python"
+PORT="${OPENBRAIN_PORT:-3111}"
+URL="http://127.0.0.1:$PORT"
+
+[[ -x "$PY" ]] || { echo "openbrain: venv not found at $PY — run ./install.sh first" >&2; exit 1; }
+
+case "${1:-help}" in
+  connect|init)
+    exec "$PY" -m myagent "$@" ;;
+  run|daemon)
+    exec "$PY" -m myagent ;;
+  dashboard|ui|open)
+    open "$URL" 2>/dev/null || xdg-open "$URL" 2>/dev/null || echo "$URL" ;;
+  off|pause)
+    curl -s --max-time 5 -X POST "$URL/pause" >/dev/null && echo "🔕 memory OFF — tools will use only their own context" \
+      || echo "couldn't reach daemon on $URL" ;;
+  on|resume)
+    curl -s --max-time 5 -X POST "$URL/resume" >/dev/null && echo "🧠 memory ON — your brain is active again" \
+      || echo "couldn't reach daemon on $URL" ;;
+  status)
+    curl -s --max-time 5 "$URL/stats" | "$PY" -c "import json,sys; d=json.load(sys.stdin); state='OFF (paused)' if d.get('paused') else 'ON'; print(f\"🧠 brain {state} — {d['total']} memories ({d['core']} core, {d['auto']} auto) · used {d['injections']}x this session\")" 2>/dev/null \
+      || echo "brain unreachable — daemon not responding on $URL" ;;
+  help|-h|--help|"")
+    cat <<EOF
+openbrain — your local memory for every AI
+
+  openbrain connect [--dry-run] [--project DIR]   detect & wire your AI tools
+  openbrain init                                  set up your persona
+  openbrain on | off                              turn memory on/off (global)
+  openbrain status                                show brain status
+  openbrain dashboard                             open the web UI
+  openbrain run                                   run the daemon (foreground)
+
+Dashboard: $URL
+EOF
+    ;;
+  *)
+    exec "$PY" -m myagent "$@" ;;
+esac

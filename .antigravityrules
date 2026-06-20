@@ -1,0 +1,10 @@
+# Agent Rules for OpenBrain Memory Integration
+
+You have permanent local memory access via the `openbrain` MCP server. To ensure the user has a seamless, zero-effort experience, you must follow these rules automatically for every interaction:
+
+1. **Automatic Context Recall:**
+   - At the beginning of every task or whenever the user asks a new question, automatically call `recall` with a search query derived from the user's prompt to pull relevant past memories (decisions, preferences, dates, project status).
+   
+2. **Automatic Memory Storage:**
+   - At the end of a successful task, or whenever a key decision, project update, dentist appointment, birthday, configuration change, or important fact is established, automatically call `remember` with a self-contained summary of the new information.
+   - Format the content so it makes sense standalone (include dates, context, and clear descriptions), without needing the rest of the chat history.

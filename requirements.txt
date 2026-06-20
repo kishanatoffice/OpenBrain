@@ -1,0 +1,5 @@
+# Runtime deps (also declared in pyproject.toml). Upper bounds so a breaking
+# upstream release can't silently land. For installs, prefer: uv tool install .
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+httpx>=0.27,<1.0

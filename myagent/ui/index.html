@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenBrain — your private memory for every AI</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1c2230; --muted: #6b7280;
+    --accent: #5b5bd6; --accent-soft: #eceefb; --line: #e6e8ee;
+    --good: #22c55e; --bad: #ef4444; --amber: #f59e0b; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 30px 26px 80px; }
+
+  .head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  .dot { width: 38px; height: 38px; border-radius: 50%; background: #d1d5db; flex: none; transition: .3s; }
+  .dot.on { background: var(--good); box-shadow: 0 0 18px rgba(34,197,94,.5); }
+  .dot.off { background: var(--bad); box-shadow: 0 0 18px rgba(239,68,68,.45); }
+  .dot.paused { background: var(--amber); box-shadow: 0 0 18px rgba(245,158,11,.45); }
+  .head h1 { margin: 0; font-size: 1.4rem; } .head .sub { margin: 2px 0 0; color: var(--muted); font-size: .85rem; }
+
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 11px 15px; flex: 1; min-width: 110px; }
+  .stat .n { font-size: 1.4rem; font-weight: 700; } .stat .l { font-size: .74rem; color: var(--muted); margin-top: 2px; }
+
+  .grid2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-bottom: 8px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+
+  h2 { font-size: 1.05rem; margin: 26px 0 12px; }
+  h3 { margin: 0 0 14px; font-size: 1rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px; }
+  .card.core { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+  .card h4 { margin: 0; font-size: .95rem; flex: none; } .card .meta { font-size: .77rem; color: var(--muted); margin-bottom: 8px; }
+  .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+  .card-head .actions { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+  .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 2px; }
+  .card-head h4, .card-head .pill { white-space: nowrap; }
+  .card p { margin: 0; font-size: .9rem; line-height: 1.45; white-space: pre-wrap; }
+
+  .ctl { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .ctl:first-of-type { border-top: none; } .ctl-text { flex: 1; }
+  .ctl-title { font-size: .95rem; font-weight: 600; } .ctl-desc { font-size: .8rem; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+  .sub.dim { opacity: .4; pointer-events: none; }
+  .switch { position: relative; display: inline-block; width: 46px; height: 26px; flex: none; }
+  .switch input { display: none; }
+  .slider { position: absolute; cursor: pointer; inset: 0; background: #cbd0da; border-radius: 999px; transition: .2s; }
+  .slider:before { content: ""; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  input:checked + .slider { background: var(--accent); } input:checked + .slider:before { transform: translateX(20px); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex: none; }
+  .seg button { all: unset; cursor: pointer; padding: 6px 13px; font-size: .8rem; color: var(--muted); }
+  .seg button.active { background: var(--accent); color: #fff; }
+
+  pre { background: #14161d; color: #e7e9f0; border-radius: 10px; padding: 12px 14px; font-size: .76rem; overflow-x: auto; margin: 10px 0 0; line-height: 1.5; font-family: ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; } .spacer { flex: 1; }
+  input[type=text], textarea { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: .9rem; background: var(--card); outline: none; }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  .btn { all: unset; cursor: pointer; background: var(--accent); color: white; padding: 9px 16px; border-radius: 10px; font-size: .88rem; font-weight: 600; text-align: center; }
+  .btn:hover { filter: brightness(1.08); } .btn:disabled { opacity: .5; cursor: default; }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+  .btn.sm { padding: 6px 12px; font-size: .8rem; }
+  .btn.danger { background: transparent; color: var(--bad); border: 1px solid #fecaca; font-weight: 500; padding: 5px 11px; font-size: .78rem; }
+  .icon { all: unset; cursor: pointer; font-size: .95rem; padding: 4px 7px; border-radius: 8px; }
+  .icon:hover { background: var(--accent-soft); }
+  .empty { text-align: center; color: var(--muted); padding: 36px 0; font-size: .92rem; }
+  details summary { cursor: pointer; font-size: .82rem; color: var(--accent); margin-top: 8px; }
+  .pill { font-size: .7rem; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .pill.auto { background: #fef3c7; color: #92400e; } .pill.src { background: #eef1f6; color: #475569; }
+
+  /* ---- workbench: rail + results ---- */
+  .work { display: grid; grid-template-columns: 230px 1fr; gap: 18px; }
+  @media (max-width: 760px) { .work { grid-template-columns: 1fr; } }
+  .rail { font-size: .85rem; position: sticky; top: 20px; align-self: start;
+    max-height: calc(100vh - 40px); overflow-y: auto; padding-right: 4px; }
+  @media (max-width: 760px) { .rail { position: static; max-height: none; } }
+  .rail .grp { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+  .rail .grp:first-child { margin-top: 0; }
+  .rail .item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); }
+  .rail .item:hover { background: var(--card); }
+  .rail .item.active { background: var(--accent); color: #fff; }
+  .rail .item .ct { margin-left: auto; font-size: .72rem; opacity: .7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="dot" id="dot"></div>
+    <div><h1 id="title">Checking…</h1><p class="sub" id="sub">looking for your brain</p></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n" id="s-total">—</div><div class="l">memories</div></div>
+    <div class="stat"><div class="n" id="s-core">—</div><div class="l">📌 persona (core)</div></div>
+    <div class="stat"><div class="n" id="s-auto">—</div><div class="l">🤖 auto-captured</div></div>
+    <div class="stat"><div class="n" id="s-used">—</div><div class="l">🧠 used this session</div></div>
+    <div class="stat"><div class="n" id="s-redact">—</div><div class="l">🔒 secrets protected</div></div>
+    <div class="stat"><div class="n" id="s-saved">—</div><div class="l">✂️ tokens saved (est.)</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card" id="controls">
+      <h3>Controls</h3>
+      <div class="ctl">
+        <div class="ctl-text"><div class="ctl-title">Memory</div>
+          <div class="ctl-desc">Use your saved memory in every AI tool. Turn off to work with a clean slate — tools use only their own context.</div></div>
+        <label class="switch"><input type="checkbox" id="t-memory"><span class="slider"></span></label>
+      </div>
+      <div class="sub" id="subctls">
+        <div class="ctl"><div class="ctl-text"><div class="ctl-title">Ask before using</div>
+          <div class="ctl-desc">When your memory might not fit the request, ask you first instead of using it automatically.</div></div>
+          <label class="switch"><input type="checkbox" id="t-preflight"><span class="slider"></span></label></div>
+        <div class="ctl"><div class="ctl-text"><div class="ctl-title">Auto-remember</div>
+          <div class="ctl-desc">Automatically save important facts from your chats (secrets and personal info are always redacted first).</div></div>
+          <label class="switch"><input type="checkbox" id="t-auto"><span class="slider"></span></label></div>
+        <div class="ctl"><div class="ctl-text"><div class="ctl-title">Sensitivity</div>
+          <div class="ctl-desc">How strict recall is. <b>Broad</b> remembers more loosely; <b>Precise</b> uses only strong matches.</div></div>
+          <div class="seg" id="seg-sens"><button data-v="0.45">Broad</button><button data-v="0.6">Balanced</button><button data-v="0.75">Precise</button></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Connect your AI tools</h3>
+      <p style="color:var(--muted);font-size:.85rem">Wire OpenBrain into every AI tool on this machine — one click; existing setups are preserved. Each tool is tagged so you can see where memories come from.</p>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="connect-btn">Connect detected tools</button>
+        <button class="btn ghost sm" id="connect-snippet">Show snippet</button>
+      </div>
+      <pre id="snip" style="display:none">loading…</pre>
+      <div id="connect-result" style="font-size:.82rem;color:var(--muted);margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div class="card" id="connectors-card">
+    <h3>Connectors</h3>
+    <p style="color:var(--muted);font-size:.85rem">Capabilities OpenBrain adds to every connected AI tool. Switch one off and its tools disappear from the tools — they stop running entirely.</p>
+    <div id="connectors-list"></div>
+  </div>
+
+  <h2>🧠 Memories</h2>
+  <div class="work">
+    <aside class="rail" id="rail"></aside>
+    <div class="results">
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="q" placeholder="Search your brain…" style="flex:1">
+        <button class="btn ghost sm" id="export">Export</button>
+        <button class="btn ghost sm" id="import-btn">Import</button>
+        <input type="file" id="import-file" accept="application/json" style="display:none">
+      </div>
+      <div class="row" style="margin-bottom:16px">
+        <textarea id="new" placeholder="Type something to remember…" style="flex:1" rows="2"></textarea>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button class="btn" id="add">Remember</button>
+          <input type="text" id="new-tags" placeholder="tags (optional)" style="width:150px"></div>
+      </div>
+      <div id="crumb" style="font-size:.82rem;color:var(--muted);margin-bottom:10px;display:none"></div>
+      <div id="list"></div>
+      <div class="row" style="justify-content:center;margin-top:8px">
+        <button class="btn ghost" id="more" style="display:none">Load more</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+const api = async (path, opts) => {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+};
+const saveSetting = (patch) => api("/settings", { method: "PUT", body: JSON.stringify(patch) });
+
+const SRC = { "cursor":"🟦 Cursor","vscode":"🟦 VS Code","windsurf":"🟦 Windsurf",
+  "claude-desktop":"🟧 Claude Desktop","claude-code":"🟧 Claude Code","gemini":"🟪 Gemini",
+  "codex":"⬛ Codex","zed":"🟩 Zed","web-ui":"✍️ You","proxy-autocapture":"🤖 Auto-saved",
+  "init":"👤 Setup","import":"📥 Import","rest":"🔌 API","mcp-http":"🔌 MCP" };
+const srcBadge = (s) => SRC[s] || ("🔌 " + (s || "unknown"));
+
+/* filter state: one active "view" + free-text search */
+let view = { kind: "all" };   // {kind:'all'|'favorite'|'core'|'auto'|'archived'|'source'|'tag', value?}
+let cursor = null;
+
+function buildUrl(after) {
+  const p = new URLSearchParams({ limit: "30" });
+  const q = $("q").value.trim(); if (q) p.set("q", q);
+  if (view.kind === "favorite") p.set("favorite", "true");
+  else if (view.kind === "archived") p.set("archived", "true");
+  else if (view.kind === "core") p.set("kind", "core");
+  else if (view.kind === "auto") p.set("kind", "auto");
+  else if (view.kind === "source") p.set("source", view.value);
+  else if (view.kind === "tag") p.set("tag", view.value);
+  if (after) p.set("after", after);
+  return "/memories?" + p.toString();
+}
+
+async function refresh() {
+  try {
+    const h = await api("/health");
+    $("snip").textContent = `claude mcp add -s user --transport http openbrain ${h.mcp_http_url}`;
+    const s = await api("/stats");
+    $("s-total").textContent = s.total; $("s-core").textContent = s.core;
+    $("s-auto").textContent = s.auto; $("s-used").textContent = s.injections; $("s-redact").textContent = s.redactions;
+    $("s-saved").textContent = (s.ocr_tokens_saved || 0).toLocaleString();
+    $("t-memory").checked = !s.paused; $("t-preflight").checked = !!s.preflight; $("t-auto").checked = !!s.autocapture;
+    $("subctls").classList.toggle("dim", !!s.paused);
+    const stops = [...$("seg-sens").querySelectorAll("button")];
+    let best = stops[1], bd = 1e9;
+    stops.forEach(b => { const d = Math.abs(parseFloat(b.dataset.v) - s.min_relevance); if (d < bd) { bd = d; best = b; } });
+    stops.forEach(b => b.classList.toggle("active", b === best));
+    renderConnectors(s.connectors || []);
+    if (s.paused) { $("dot").className = "dot paused"; $("title").textContent = "Memory is OFF"; $("sub").textContent = "paused — tools use only their own context"; }
+    else { $("dot").className = "dot on"; $("title").textContent = "Your brain is ON";
+      $("sub").textContent = `vault: ${h.vault_path}` + (h.ollama_reachable ? "" : " · ⚠️ Ollama offline") + (s.degraded ? " · ⚠️ background task degraded" : ""); }
+    renderRail(await api("/facets"));
+  } catch {
+    $("dot").className = "dot off"; $("title").textContent = "Brain is OFF";
+    const onDaemon = location.port === "3111" || location.hostname === "127.0.0.1";
+    $("sub").innerHTML = onDaemon ? "the daemon is not responding — start it with <code>openbrain run</code>"
+      : 'open at <a href="http://127.0.0.1:3111">http://127.0.0.1:3111</a>';
+  }
+}
+
+function renderRail(f) {
+  const rail = $("rail");
+  const item = (label, isActive, onClick, count) =>
+    `<div class="item${isActive ? " active" : ""}" data-k="${label}">${label}` +
+    (count != null ? `<span class="ct">${count}</span>` : "") + `</div>`;
+  let html = `<div class="grp">Views</div>`;
+  const views = [["all","All",f.total],["favorite","⭐ Favorites",f.favorite],
+    ["core","📌 Persona",f.core],["auto","🤖 Auto",f.auto],["archived","📦 Archived",f.archived]];
+  views.forEach(([k, lbl, ct]) => {
+    html += `<div class="item${view.kind===k?" active":""}" data-view="${k}">${lbl}<span class="ct">${ct}</span></div>`;
+  });
+  if (f.sources.length) {
+    html += `<div class="grp">Sources</div>`;
+    f.sources.forEach(s => { const active = view.kind==="source"&&view.value===s.source;
+      html += `<div class="item${active?" active":""}" data-source="${esc(s.source)}">${esc(srcBadge(s.source))}<span class="ct">${s.count}</span></div>`; });
+  }
+  const realTags = f.tags.filter(t => t.tag.length > 1 && !["core","auto"].includes(t.tag));
+  if (realTags.length) {
+    html += `<div class="grp">Tags</div>`;
+    realTags.slice(0,15).forEach(t => { const active = view.kind==="tag"&&view.value===t.tag;
+      html += `<div class="item${active?" active":""}" data-tag="${esc(t.tag)}">🏷 ${esc(t.tag)}<span class="ct">${t.count}</span></div>`; });
+  }
+  rail.innerHTML = html;
+  rail.querySelectorAll("[data-view]").forEach(el => el.onclick = () => { view = { kind: el.dataset.view }; load(); });
+  rail.querySelectorAll("[data-source]").forEach(el => el.onclick = () => { view = { kind: "source", value: el.dataset.source }; load(); });
+  rail.querySelectorAll("[data-tag]").forEach(el => el.onclick = () => { view = { kind: "tag", value: el.dataset.tag }; load(); });
+}
+
+async function load() {
+  cursor = null; $("list").innerHTML = "";
+  renderCrumb();
+  await appendPage(true);
+}
+function renderCrumb() {
+  const labels = { all: null, favorite: "⭐ Favorites", core: "📌 Persona",
+    auto: "🤖 Auto", archived: "📦 Archived", source: "Source: " + (view.value || ""),
+    tag: "🏷 " + (view.value || "") };
+  const c = $("crumb"); const lbl = labels[view.kind];
+  if (!lbl) { c.style.display = "none"; return; }
+  c.style.display = ""; c.innerHTML =
+    `Filtered by <b>${esc(lbl)}</b> &nbsp;<a href="#" id="crumb-x" style="color:var(--accent)">clear ✕</a>`;
+  $("crumb-x").onclick = (e) => { e.preventDefault(); view = { kind: "all" }; load(); refresh(); };
+}
+async function appendPage(reset) {
+  const data = await api(buildUrl(cursor));
+  cursor = data.next;
+  $("more").style.display = cursor ? "" : "none";
+  const list = $("list");
+  if (reset && !data.memories.length) {
+    list.innerHTML = `<div class="empty">🌱 Nothing here. Add a memory, run <code>openbrain init</code>, or let your tools save them.</div>`;
+    return;
+  }
+  data.memories.forEach((m) => list.appendChild(card(m)));
+}
+
+function card(m) {
+  const isCore = (m.tags || []).includes("core");
+  const el = document.createElement("div");
+  el.className = "card" + (isCore ? " core" : "");
+  const chips = (m.tags || []).map((t) => t === "core" ? '<span class="pill">📌 core</span>'
+    : t === "auto" ? '<span class="pill auto">🤖 auto</span>' : `<span class="pill">${esc(t)}</span>`).join(" ");
+  const tagsHtml = chips + (m.summarized ? "" : ' <span class="pill">summarizing…</span>');
+  el.innerHTML = `
+    <div class="card-head">
+      <h4>Memory #${m.id}</h4>
+      <span class="pill src">${esc(srcBadge(m.source))}</span>
+      <div class="actions">
+        <button class="icon" data-fav title="Favorite">${m.favorite ? "⭐" : "☆"}</button>
+        <button class="icon" data-arch title="${m.archived ? "Unarchive" : "Archive"}">${m.archived ? "📤" : "📦"}</button>
+        <button class="btn ghost sm" data-pin>${isCore ? "Unpin" : "📌 Pin"}</button>
+        <button class="btn ghost sm" data-edit>Edit</button>
+        <button class="btn danger" data-del>Delete</button>
+      </div></div>
+    ${tagsHtml.trim() ? `<div class="card-tags">${tagsHtml}</div>` : ""}
+    <div class="meta">${new Date(m.created_at).toLocaleString()}</div>
+    <p>${esc(m.summary)}</p>
+    <details><summary>Show full text</summary><p>${esc(m.content)}</p></details>`;
+  const reload = () => { load(); refresh(); };
+  el.querySelector("[data-fav]").onclick = async () => { await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ favorite: !m.favorite }) }); reload(); };
+  el.querySelector("[data-arch]").onclick = async () => { await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ archived: !m.archived }) }); reload(); };
+  el.querySelector("[data-pin]").onclick = async () => {
+    const t = new Set(m.tags || []); isCore ? t.delete("core") : t.add("core");
+    await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ tags: [...t] }) }); reload(); };
+  el.querySelector("[data-edit]").onclick = () => {
+    const det = el.querySelector("details"); if (det) det.style.display = "none";
+    el.querySelector("p").outerHTML = `
+      <textarea data-ec style="width:100%;min-height:90px">${esc(m.content)}</textarea>
+      <input type="text" data-et style="width:100%;margin-top:6px" value="${esc((m.tags||[]).join(", "))}" placeholder="tags">
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-save>Save</button><button class="btn ghost sm" data-cancel>Cancel</button></div>`;
+    el.querySelector("[data-cancel]").onclick = reload;
+    el.querySelector("[data-save]").onclick = async () => {
+      const content = el.querySelector("[data-ec]").value.trim();
+      const tags = el.querySelector("[data-et]").value.split(",").map(t => t.trim()).filter(Boolean);
+      await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ content, tags }) }); reload(); }; };
+  el.querySelector("[data-del]").onclick = async () => {
+    if (!confirm(`Delete memory #${m.id}? This also removes its vault file.`)) return;
+    await api(`/memories/${m.id}`, { method: "DELETE" }); reload(); };
+  return el;
+}
+
+function renderConnectors(list) {
+  const host = $("connectors-list");
+  host.innerHTML = "";
+  for (const c of list) {
+    const row = document.createElement("div");
+    row.className = "ctl";
+    const tools = (c.tools || []).map(esc).join(", ");
+    const right = c.toggleable
+      ? `<label class="switch"><input type="checkbox" data-conn="${esc(c.key)}"${c.enabled ? " checked" : ""}><span class="slider"></span></label>`
+      : `<span style="font-size:.72rem;color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:2px 8px">Built-in</span>`;
+    row.innerHTML = `<div class="ctl-text"><div class="ctl-title">${esc(c.label)}</div>` +
+      `<div class="ctl-desc">${esc(c.description)}${tools ? ` <span style="opacity:.6">· tools: ${tools}</span>` : ""}</div></div>${right}`;
+    const box = row.querySelector("input[data-conn]");
+    if (box) box.onchange = async (e) => {
+      await saveSetting({ connectors: { [c.key]: e.target.checked } }); refresh(); };
+    host.appendChild(row);
+  }
+}
+
+$("more").onclick = () => appendPage(false);
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+$("t-memory").onchange = async (e) => { await saveSetting({ paused: !e.target.checked }); refresh(); };
+$("t-preflight").onchange = (e) => saveSetting({ preflight: e.target.checked });
+$("t-auto").onchange = (e) => saveSetting({ autocapture: e.target.checked });
+$("seg-sens").querySelectorAll("button").forEach(b => b.onclick = async () => { await saveSetting({ min_relevance: parseFloat(b.dataset.v) }); refresh(); });
+$("connect-snippet").onclick = () => { const p = $("snip"); p.style.display = p.style.display === "none" ? "block" : "none"; };
+$("connect-btn").onclick = async () => {
+  $("connect-btn").disabled = true; $("connect-result").textContent = "Connecting…";
+  try { const r = await api("/connect", { method: "POST" });
+    $("connect-result").innerHTML = `<b>Wired:</b> ${esc(r.connected.map(c => c.label).join("  ✓ ")) || "none"}` +
+      (r.not_installed.length ? `<br><span style="opacity:.7">Not detected: ${esc(r.not_installed.join(", "))}</span>` : "") +
+      `<br><span style="opacity:.7">Restart a tool to pick up the new server.</span>`;
+  } catch (e) { $("connect-result").textContent = "Failed: " + e.message; }
+  $("connect-btn").disabled = false; refresh();
+};
+$("add").onclick = async () => {
+  const content = $("new").value.trim(); if (!content) return;
+  const tags = $("new-tags").value.split(",").map(t => t.trim()).filter(Boolean);
+  $("add").disabled = true;
+  try { const saved = await api("/memories", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Source": "web-ui" }, body: JSON.stringify({ content, tags }) });
+    if (saved.duplicate) alert(`Already known — matches memory #${saved.id}.`);
+    $("new").value = ""; $("new-tags").value = ""; load(); refresh();
+  } catch (e) { alert(e.message); } $("add").disabled = false;
+};
+$("export").onclick = async () => {
+  const data = await api("/export");
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "openbrain-export.json"; a.click(); URL.revokeObjectURL(a.href);
+};
+$("import-btn").onclick = () => $("import-file").click();
+$("import-file").onchange = async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  try { const data = JSON.parse(await file.text());
+    const memories = (data.memories || data).map(m => ({ content: m.content, tags: m.tags || [] }));
+    const r = await api("/import", { method: "POST", body: JSON.stringify({ memories }) });
+    alert(`Imported ${r.imported}, ${r.duplicates} duplicates skipped.`); load(); refresh();
+  } catch (err) { alert("Import failed: " + err.message); } e.target.value = "";
+};
+
+refresh(); load(); setInterval(refresh, 15000);
+</script>
+</body>
+</html>
