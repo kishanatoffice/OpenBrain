@@ -35,6 +35,17 @@ _CORRECTION_SYSTEM = (
     "reply with exactly: NO. Be strict — when in doubt, answer NO."
 )
 
+_CONTRADICTION_SYSTEM = (
+    "You decide whether a NEW fact directly CONTRADICTS an OLD stored fact about "
+    "the user — i.e. they cannot both be true now, so the new one supersedes the "
+    "old (e.g. OLD 'uses MySQL' vs NEW 'uses Postgres, not MySQL'; OLD 'lives in "
+    "Paris' vs NEW 'moved to Berlin'). Facts that are merely related, additive, "
+    "or about different things do NOT contradict (OLD 'likes Python' vs NEW "
+    "'likes Go' is NOT a contradiction — both can be true). Reply with exactly "
+    "YES if the new fact supersedes the old one, otherwise exactly NO. When in "
+    "doubt, answer NO — never invalidate a still-true memory."
+)
+
 _GATE_SYSTEM = (
     "A memory assistant is about to ask the user whether to use their saved "
     "context before answering. Given the user's request and the context the "
@@ -171,6 +182,28 @@ class OllamaClient:
         if not verdict or verdict.upper().startswith("NO"):
             return None
         return verdict[:500]
+
+    async def judge_contradiction(self, old_fact: str, new_fact: str) -> bool:
+        """True if `new_fact` supersedes `old_fact` (they can't both be true).
+        Returns False (never raises) on error — fail closed, so an unreachable
+        Ollama never invalidates a memory."""
+        if not old_fact.strip() or not new_fact.strip():
+            return False
+        payload = {
+            "model": self.model,
+            "system": _CONTRADICTION_SYSTEM,
+            "prompt": f"OLD fact:\n{old_fact}\n\nNEW fact:\n{new_fact}",
+            "stream": False,
+            "think": False,
+            "options": {"temperature": 0.0},
+        }
+        try:
+            resp = await self._client.post("/api/generate", json=payload)
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return False
+        verdict = _THINK_RE.sub("", resp.json().get("response", "")).strip()
+        return verdict.upper().startswith("YES")
 
     async def draft_gate(self, query: str, context: str,
                          timeout: float = 8.0) -> str | None:

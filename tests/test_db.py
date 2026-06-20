@@ -20,7 +20,7 @@ class TestStore(unittest.TestCase):
 
     def test_fresh_database_migrates_to_latest(self):
         conn = sqlite3.connect(self.store.db_path)
-        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 6)
+        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 7)
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertIn("memories", tables)
@@ -29,6 +29,7 @@ class TestStore(unittest.TestCase):
         self.assertNotIn("automations", tables)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)")}
         self.assertTrue({"favorite", "archived", "category"} <= cols)  # v6
+        self.assertTrue({"invalidated_at", "invalidated_by"} <= cols)   # v7
         conn.close()
 
     def test_tags_are_normalized_and_roundtripped(self):
@@ -91,6 +92,32 @@ class TestStore(unittest.TestCase):
         self.assertEqual(self.store.search_keyword("archive"), [])  # recall: gone
         self.assertEqual(len(self.store.browse(archived=True)["rows"]), 1)  # browse: visible
         self.assertEqual(len(self.store.browse()["rows"]), 0)    # default browse: hidden
+
+    def test_supersede_excludes_from_recall_but_keeps_row(self):
+        old = self.store.add("production db is MySQL", "s", tags=["infra"])
+        new = self.store.add("production db is Postgres", "s", tags=["infra"])
+        self.store.replace_chunk_embeddings(old["id"], "m", [[1.0, 0.0]])
+        self.store.replace_chunk_embeddings(new["id"], "m", [[0.0, 1.0]])
+
+        self.assertTrue(self.store.supersede(old["id"], new["id"]))
+        invalidated = self.store.get(old["id"])
+        self.assertIsNotNone(invalidated["invalidated_at"])   # row kept (audit)
+        self.assertEqual(invalidated["invalidated_by"], new["id"])
+
+        # Gone from every recall channel, present only as the new fact.
+        self.assertEqual([r["id"] for r in self.store.recent(10)], [new["id"]])
+        self.assertEqual([r["id"] for r in self.store.search_keyword("production")],
+                         [new["id"]])
+        self.assertEqual([r["id"] for r in self.store.by_tag("infra")], [new["id"]])
+        emb_ids = {mid for mid, _, _ in self.store.all_chunk_embeddings("m")}
+        self.assertEqual(emb_ids, {new["id"]})
+
+    def test_supersede_is_idempotent_and_guards_self_reference(self):
+        a = self.store.add("fact a", "s")
+        b = self.store.add("fact b", "s")
+        self.assertFalse(self.store.supersede(a["id"], a["id"]))   # no self-ref
+        self.assertTrue(self.store.supersede(a["id"], b["id"]))
+        self.assertFalse(self.store.supersede(a["id"], b["id"]))   # already done
 
     def test_facet_counts(self):
         self.store.add("one", "s", tags=["work", "core"], source="cursor")

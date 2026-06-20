@@ -19,6 +19,7 @@ class FakeOllama:
                  default: list[float] | None = None, down: bool = False,
                  judge_summary: str | None = None,
                  correction_summary: str | None = None,
+                 contradiction: bool = False,
                  gate_intro: str | None = None):
         self.embed_model = "fake-embed"
         self.embed_key = "fake-embed"
@@ -30,6 +31,8 @@ class FakeOllama:
         self.judge_summary = judge_summary
         # What judge_correction returns: the corrected fact, or None (no correction).
         self.correction_summary = correction_summary
+        # What judge_contradiction returns (does NEW supersede OLD).
+        self.contradiction = contradiction
         # What draft_gate returns: a tailored intro, or None (static fallback).
         self.gate_intro = gate_intro
 
@@ -43,6 +46,11 @@ class FakeOllama:
         if self.down or not prior_assistant.strip() or not user_msg.strip():
             return None  # fails closed; mirrors the real client's guard
         return self.correction_summary
+
+    async def judge_contradiction(self, old_fact: str, new_fact: str) -> bool:
+        if self.down or not old_fact.strip() or not new_fact.strip():
+            return False  # fail closed: never invalidate when judge is unsure
+        return self.contradiction
 
     async def draft_gate(self, query: str, context: str,
                          timeout: float = 8.0) -> str | None:

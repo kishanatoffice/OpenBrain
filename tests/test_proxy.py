@@ -315,6 +315,27 @@ class TestAutoCapture(unittest.TestCase):
         self.assertEqual(deps.store.count(), 1)
         self.assertNotIn("correction", deps.store.recent(1)[0]["tags"])
 
+    def test_correction_supersedes_the_stale_memory(self):
+        # End-to-end: an old fact is stored, then the user corrects it; the
+        # correction is captured AND the stale memory is invalidated (not piled
+        # next to the new one). Vectors are similar-but-distinct so dedup doesn't
+        # fire yet the old fact still surfaces as a supersede candidate.
+        corrected = "The project uses Postgres, not MySQL."
+        vecs = {"production database is MySQL": [1.0, 0.0, 0.0],
+                corrected: [0.8, 0.6, 0.0]}  # cosine 0.8: not a dup, but related
+        deps = make_deps(self.tmp.name, vectors=vecs, default=[0.0, 0.0, 1.0],
+                         correction_summary=corrected, contradiction=True)
+        old = run(create_memory(deps, "production database is MySQL",
+                                source="cursor"))
+        run(_capture(deps, "no, we use Postgres not MySQL",
+                     prior_assistant="Your production database is MySQL."))
+        # New correction stored, old fact invalidated and gone from recall.
+        self.assertIsNotNone(deps.store.get(old["id"])["invalidated_at"])
+        live_ids = [r["id"] for r in deps.store.recent(10)]
+        self.assertNotIn(old["id"], live_ids)
+        self.assertTrue(any("correction" in deps.store.get(i)["tags"]
+                            for i in live_ids))
+
 
 if __name__ == "__main__":
     unittest.main()

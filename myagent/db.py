@@ -130,11 +130,22 @@ CREATE INDEX IF NOT EXISTS idx_memories_category ON memories (category);
 CREATE INDEX IF NOT EXISTS idx_memories_keyset ON memories (archived, created_at DESC, id DESC);
 """
 
+# v7 — supersede-don't-delete: a memory is never silently overwritten by a newer
+# contradicting fact; instead the stale one is marked invalidated (with a pointer
+# to the memory that replaced it) and dropped from recall, while staying on disk
+# for audit. This is memory that *evolves* rather than lies — the trust feature.
+_MIGRATION_V7 = """
+ALTER TABLE memories ADD COLUMN invalidated_at TEXT;
+ALTER TABLE memories ADD COLUMN invalidated_by INTEGER;
+CREATE INDEX IF NOT EXISTS idx_memories_valid ON memories (invalidated_at);
+"""
+
 _MIGRATIONS = [_MIGRATION_V1, _MIGRATION_V2, _MIGRATION_V3, _MIGRATION_V4,
-               _MIGRATION_V5, _MIGRATION_V6]
+               _MIGRATION_V5, _MIGRATION_V6, _MIGRATION_V7]
 
 _ROW_COLUMNS = ("id, content, summary, tokens_used, created_at, md_path, "
-                "summarized, tags, source, favorite, archived, category")
+                "summarized, tags, source, favorite, archived, category, "
+                "invalidated_at, invalidated_by")
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -250,6 +261,8 @@ class MemoryStore:
             "favorite": 0,
             "archived": 0,
             "category": "",
+            "invalidated_at": None,
+            "invalidated_by": None,
         }
 
     def update_content(self, memory_id: int, content: str) -> None:
@@ -331,10 +344,12 @@ class MemoryStore:
         return _row_to_dict(row) if row else None
 
     def recent(self, limit: int = 10) -> list[dict[str, Any]]:
-        # Archived memories are kept but never surface in recall.
+        # Archived and superseded (invalidated) memories are kept but never
+        # surface in recall.
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT {_ROW_COLUMNS} FROM memories WHERE archived = 0 "
+                f"SELECT {_ROW_COLUMNS} FROM memories "
+                "WHERE archived = 0 AND invalidated_at IS NULL "
                 "ORDER BY created_at DESC, id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -347,7 +362,7 @@ class MemoryStore:
         with self._connect() as conn:
             rows = conn.execute(
                 f"SELECT {_ROW_COLUMNS} FROM memories "
-                "WHERE archived = 0 AND tags LIKE ? "
+                "WHERE archived = 0 AND invalidated_at IS NULL AND tags LIKE ? "
                 "ORDER BY created_at DESC, id DESC LIMIT ?",
                 (f"%{needle}%", limit),
             ).fetchall()
@@ -363,6 +378,7 @@ class MemoryStore:
                 f"SELECT {', '.join('m.' + c for c in _ROW_COLUMNS.split(', '))} "
                 "FROM memories_fts f JOIN memories m ON m.id = f.rowid "
                 "WHERE memories_fts MATCH ? AND m.archived = 0 "
+                "AND m.invalidated_at IS NULL "
                 "ORDER BY bm25(memories_fts) LIMIT ?",
                 (fts_query, limit),
             ).fetchall()
@@ -531,11 +547,30 @@ class MemoryStore:
         return [dict(r) for r in rows]
 
     def all_chunk_embeddings(self, model: str) -> list[tuple[int, int, array]]:
+        # Exclude superseded memories so they leave both semantic recall and the
+        # write-time dedup scan (a resurrected fact should store fresh, not match
+        # its own invalidated copy).
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT memory_id, chunk_index, vector FROM chunk_embeddings "
-                "WHERE model = ?",
+                "SELECT e.memory_id, e.chunk_index, e.vector "
+                "FROM chunk_embeddings e JOIN memories m ON m.id = e.memory_id "
+                "WHERE e.model = ? AND m.invalidated_at IS NULL",
                 (model,),
             ).fetchall()
         return [(r["memory_id"], r["chunk_index"], _unpack(r["vector"]))
                 for r in rows]
+
+    def supersede(self, old_id: int, new_id: int) -> bool:
+        """Mark `old_id` invalidated, replaced by `new_id`. Idempotent and
+        guarded: a memory already invalidated, or a self-reference, is left
+        alone. Returns True if a row was newly invalidated."""
+        if old_id == new_id:
+            return False
+        when = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE memories SET invalidated_at = ?, invalidated_by = ? "
+                "WHERE id = ? AND invalidated_at IS NULL",
+                (when, new_id, old_id),
+            )
+            return cur.rowcount > 0

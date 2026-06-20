@@ -29,7 +29,13 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from .memory_service import Deps, create_memory, recall_context, top_relevance
+from .memory_service import (
+    Deps,
+    apply_supersession,
+    create_memory,
+    recall_context,
+    top_relevance,
+)
 from .redact import redact
 
 log = logging.getLogger("myagent.proxy")
@@ -190,8 +196,15 @@ async def _capture(deps: Deps, text: str, prior_assistant: str = "") -> None:
             summary = await deps.ollama.judge_durable(text)
         if summary:
             # force=False -> dedup + the write-quality guard still apply.
-            await create_memory(deps, summary, tags=tags, source=source, force=False)
+            memory = await create_memory(deps, summary, tags=tags, source=source,
+                                         force=False)
             log.info("autocapture: stored %.60r (%s)", summary, source)
+            # A correction means the user is replacing a fact — supersede the
+            # stale memory it contradicts (only on a freshly-stored correction,
+            # never a duplicate/skipped write).
+            if (source == "proxy-correction" and memory.get("id")
+                    and not memory.get("duplicate") and not memory.get("skipped")):
+                await apply_supersession(deps, memory)
     except Exception:
         log.exception("autocapture failed (ignored)")
 

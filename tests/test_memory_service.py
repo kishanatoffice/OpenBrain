@@ -9,6 +9,7 @@ from pathlib import Path
 
 from myagent.memory_service import (
     _pack,
+    apply_supersession,
     chunk_text,
     create_memory,
     enrich_pending,
@@ -333,6 +334,52 @@ class TestEnrichment(unittest.TestCase):
             # ...but the user's vault-authored file was left untouched
             self.assertEqual(note_path.read_text(encoding="utf-8"),
                              "vault authored")
+
+
+class TestSupersession(unittest.TestCase):
+    """A correction invalidates the stale memory it contradicts — but only when
+    the contradiction judge confirms it (trust: never drop a still-true fact)."""
+
+    def _seed_pair(self, deps):
+        # Stored directly (bypassing create_memory dedup) with similar vectors so
+        # the new fact surfaces the old one as a supersede candidate.
+        old = deps.store.add("production database is MySQL", "s")
+        new = deps.store.add("production database is Postgres, not MySQL", "s")
+        for m in (old, new):
+            deps.store.replace_chunk_embeddings(m["id"], deps.ollama.embed_key,
+                                                [[1.0, 0.0, 0.0]])
+        return old, new
+
+    def test_invalidates_contradicting_memory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(tmp, default=[1.0, 0.0, 0.0], contradiction=True)
+            old, new = self._seed_pair(deps)
+            self.assertEqual(run(apply_supersession(deps, new)), old["id"])
+            self.assertIsNotNone(deps.store.get(old["id"])["invalidated_at"])
+            self.assertEqual(deps.store.get(old["id"])["invalidated_by"], new["id"])
+
+    def test_keeps_memory_when_judge_says_no_contradiction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(tmp, default=[1.0, 0.0, 0.0], contradiction=False)
+            old, new = self._seed_pair(deps)
+            self.assertIsNone(run(apply_supersession(deps, new)))
+            self.assertIsNone(deps.store.get(old["id"])["invalidated_at"])
+
+    def test_no_supersede_when_nothing_similar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(tmp, contradiction=True)
+            # Orthogonal vectors → similarity below the candidate floor.
+            old = deps.store.add("I enjoy hiking on weekends", "s")
+            new = deps.store.add("the API base url is v2", "s")
+            deps.store.replace_chunk_embeddings(old["id"], deps.ollama.embed_key,
+                                                [[1.0, 0.0, 0.0]])
+            deps.store.replace_chunk_embeddings(new["id"], deps.ollama.embed_key,
+                                                [[0.0, 1.0, 0.0]])
+            # apply_supersession embeds new's content; default vector is [1,0,0],
+            # but the stored new vector is orthogonal to old — the judge is never
+            # even consulted for a below-floor candidate.
+            deps.ollama.vectors = {new["content"]: [0.0, 1.0, 0.0]}
+            self.assertIsNone(run(apply_supersession(deps, new)))
 
 
 class TestProvenance(unittest.TestCase):

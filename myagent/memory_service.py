@@ -38,6 +38,10 @@ CHUNK_CHARS = 1_500
 CHUNK_OVERLAP = 200
 MAX_CHUNKS = 64
 DUPLICATE_COSINE = 0.95
+# Supersede candidates must be at least this similar to the new fact before the
+# contradiction judge is even consulted — keeps the (cost + risk) of judging to
+# plausibly-conflicting memories, never the whole store.
+SUPERSEDE_MIN_SIMILARITY = 0.55
 # Semantic gate: keep a memory only if cos >= max(floor, 0.90 * best_cos).
 # Measured on nomic-embed-text+prefixes: true matches 0.56-0.76, junk
 # 0.34-0.52, nonsense queries peak ~0.48 — no single absolute floor separates
@@ -222,6 +226,41 @@ async def create_memory(deps: Deps, content: str,
     elif warning:
         memory["warning"] = warning
     return memory
+
+
+async def apply_supersession(deps: Deps, new_memory: dict[str, Any]) -> int | None:
+    """After a new fact is stored, find an existing memory it directly
+    contradicts and mark that one superseded (invalidated_by = the new id).
+
+    Deliberately conservative — the whole point of supersede-don't-delete is
+    trust, so a *false* invalidation (dropping a still-true memory) is the worst
+    outcome. Two gates must both pass: high semantic similarity (same topic) AND
+    an explicit contradiction verdict from the model. Returns the invalidated id,
+    or None. Never raises — supersession is an enhancement, never blocks a write."""
+    content = (new_memory.get("content") or "").strip()
+    new_id = new_memory.get("id")
+    if not content or new_id is None:
+        return None
+    try:
+        vec = await deps.ollama.embed(content, kind="query")
+    except OllamaError:
+        return None  # no embeddings -> can't find the contradicted memory
+    # all_chunk_embeddings already excludes invalidated memories.
+    candidates = pool_chunk_similarities(
+        vec, deps.store.all_chunk_embeddings(deps.ollama.embed_key), 5)
+    for mid, score, _vec in candidates:
+        if mid == new_id:
+            continue  # never supersede the memory we just wrote
+        if score < SUPERSEDE_MIN_SIMILARITY:
+            break  # candidates are sorted desc; nothing closer remains
+        old = deps.store.get(mid)
+        if old is None or old.get("invalidated_at"):
+            continue
+        if await deps.ollama.judge_contradiction(old["content"], content):
+            if deps.store.supersede(mid, new_id):
+                log.info("supersede: memory #%s invalidated by #%s", mid, new_id)
+                return mid
+    return None
 
 
 # ---- recall path --------------------------------------------------------------

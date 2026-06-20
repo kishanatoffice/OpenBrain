@@ -26,6 +26,15 @@ search index + embeddings + the markdown file). Data is stored unencrypted at
 rest, so rely on full-disk encryption (FileVault/BitLocker). The daemon never
 phones home. Licensed Apache-2.0.
 
+**Memory that evolves, not lies.** When you correct a fact mid-chat ("no, we use
+Postgres, not MySQL"), the proxy captures the correction *and* **supersedes** the
+stale memory: the old one is marked invalidated (with a pointer to what replaced
+it) and dropped from recall, while staying on disk for audit. Supersession is
+deliberately conservative — it needs both a close semantic match and an explicit
+contradiction verdict from your local model, and fails closed — so a still-true
+memory is never silently dropped. This kills the #1 failure mode of memory
+tools: confidently recalling something that's no longer true.
+
 **Local API token.** The daemon binds to `127.0.0.1`, but loopback is shared by
 every process and user on the machine. So every data/management endpoint
 requires a random token (stored `0600` at `~/.myagent/token`, created on first
