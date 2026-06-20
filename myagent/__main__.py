@@ -61,8 +61,12 @@ def _run_daemon() -> None:
     )
     cfg = load_config()
     # Loopback only: this is a local-first daemon, never exposed on a network.
+    # access_log=False: the request line carries `?token=<API token>` for the
+    # URL transport, and launchd persists stdout to a logfile — so access logging
+    # would write the token in cleartext. App-level logs (injections, errors)
+    # remain via the configured logger.
     uvicorn.run(create_app(cfg), host="127.0.0.1", port=cfg.memory_port,
-                log_level="info")
+                log_level="info", access_log=False)
 
 
 def main() -> None:

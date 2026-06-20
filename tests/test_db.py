@@ -112,6 +112,19 @@ class TestStore(unittest.TestCase):
         emb_ids = {mid for mid, _, _ in self.store.all_chunk_embeddings("m")}
         self.assertEqual(emb_ids, {new["id"]})
 
+    def test_delete_resurrects_superseded_original(self):
+        old = self.store.add("production db is MySQL", "s")
+        new = self.store.add("production db is Postgres", "s")
+        self.store.supersede(old["id"], new["id"])
+        self.assertIsNotNone(self.store.get(old["id"])["invalidated_at"])
+        # Deleting the replacement must bring the original back into recall,
+        # not leave it hidden forever pointing at a now-missing memory.
+        self.store.delete(new["id"])
+        resurrected = self.store.get(old["id"])
+        self.assertIsNone(resurrected["invalidated_at"])
+        self.assertIsNone(resurrected["invalidated_by"])
+        self.assertEqual([r["id"] for r in self.store.recent(10)], [old["id"]])
+
     def test_supersede_is_idempotent_and_guards_self_reference(self):
         a = self.store.add("fact a", "s")
         b = self.store.add("fact b", "s")

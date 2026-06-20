@@ -256,6 +256,10 @@ async def apply_supersession(deps: Deps, new_memory: dict[str, Any]) -> int | No
         old = deps.store.get(mid)
         if old is None or old.get("invalidated_at"):
             continue
+        # Never auto-supersede the curated persona layer — core memories are the
+        # standing promise; the user edits those deliberately, not a background judge.
+        if CORE_TAG in (old.get("tags") or []):
+            continue
         if await deps.ollama.judge_contradiction(old["content"], content):
             if deps.store.supersede(mid, new_id):
                 log.info("supersede: memory #%s invalidated by #%s", mid, new_id)

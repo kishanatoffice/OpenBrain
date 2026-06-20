@@ -122,32 +122,35 @@ async def _run(golden_path: Path, use_ollama: bool = False) -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         deps = _make_deps(tmp, use_ollama)
-        if use_ollama and not await deps.ollama.is_reachable():
-            print("--ollama set but Ollama is not reachable; start it and retry",
-                  file=sys.stderr)
-            return 2
-        aliases = await _seed(deps, seeds)
-
-        per_k = {k: 0 for k in K_VALUES}
-        mrr_sum = 0.0
-        failures: list[tuple[str, list[str], list[int]]] = []
-
-        for q in queries:
-            expected_ids = {aliases[a] for a in q["expect"]}
-            tag_filter: str | list[str] | None = None
-            if q.get("ns"):
-                tag_filter = [f"ns:{q['ns']}"]
-            try:
-                block = await recall_context(deps, q["q"], 2000, tag_filter, 0.0)
-            except OllamaError as e:
-                print(f"recall_context errored on {q['q']!r}: {e}", file=sys.stderr)
+        try:
+            if use_ollama and not await deps.ollama.is_reachable():
+                print("--ollama set but Ollama is not reachable; start it and retry",
+                      file=sys.stderr)
                 return 2
-            ranked = [int(m) for m in ID_PATTERN.findall(block)]
-            for k in K_VALUES:
-                per_k[k] += _hit_at(ranked, expected_ids, k)
-            mrr_sum += _mrr(ranked, expected_ids)
-            if not _hit_at(ranked, expected_ids, max(K_VALUES)):
-                failures.append((q["q"], q["expect"], ranked))
+            aliases = await _seed(deps, seeds)
+
+            per_k = {k: 0 for k in K_VALUES}
+            mrr_sum = 0.0
+            failures: list[tuple[str, list[str], list[int]]] = []
+
+            for q in queries:
+                expected_ids = {aliases[a] for a in q["expect"]}
+                tag_filter: str | list[str] | None = None
+                if q.get("ns"):
+                    tag_filter = [f"ns:{q['ns']}"]
+                try:
+                    block = await recall_context(deps, q["q"], 2000, tag_filter, 0.0)
+                except OllamaError as e:
+                    print(f"recall_context errored on {q['q']!r}: {e}", file=sys.stderr)
+                    return 2
+                ranked = [int(m) for m in ID_PATTERN.findall(block)]
+                for k in K_VALUES:
+                    per_k[k] += _hit_at(ranked, expected_ids, k)
+                mrr_sum += _mrr(ranked, expected_ids)
+                if not _hit_at(ranked, expected_ids, max(K_VALUES)):
+                    failures.append((q["q"], q["expect"], ranked))
+        finally:
+            await deps.ollama.aclose()
 
     n = len(queries)
     embedder = "real Ollama (nomic-embed-text)" if use_ollama else "hash-BoW (deterministic)"

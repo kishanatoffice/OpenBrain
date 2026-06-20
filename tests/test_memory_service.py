@@ -365,6 +365,19 @@ class TestSupersession(unittest.TestCase):
             self.assertIsNone(run(apply_supersession(deps, new)))
             self.assertIsNone(deps.store.get(old["id"])["invalidated_at"])
 
+    def test_does_not_supersede_core_persona_memory(self):
+        # The always-on persona layer is user-curated; a background correction
+        # must never silently invalidate it, even on a confirmed contradiction.
+        with tempfile.TemporaryDirectory() as tmp:
+            deps = make_deps(tmp, default=[1.0, 0.0, 0.0], contradiction=True)
+            old = deps.store.add("the user prefers MySQL", "s", tags=["core"])
+            new = deps.store.add("the user prefers Postgres now", "s")
+            for m in (old, new):
+                deps.store.replace_chunk_embeddings(m["id"], deps.ollama.embed_key,
+                                                    [[1.0, 0.0, 0.0]])
+            self.assertIsNone(run(apply_supersession(deps, new)))
+            self.assertIsNone(deps.store.get(old["id"])["invalidated_at"])
+
     def test_no_supersede_when_nothing_similar(self):
         with tempfile.TemporaryDirectory() as tmp:
             deps = make_deps(tmp, contradiction=True)

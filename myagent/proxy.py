@@ -85,8 +85,10 @@ _HOP_BY_HOP = {
 }
 # Request headers we must not forward upstream (host/length get recomputed;
 # we strip accept-encoding so the upstream replies in identity and we can
-# stream raw bytes without decompressing).
-_DROP_REQUEST_HEADERS = {"host", "content-length", "accept-encoding", "connection"}
+# stream raw bytes without decompressing). x-openbrain-token + cookie are local
+# auth credentials — they must never leak to the upstream model provider.
+_DROP_REQUEST_HEADERS = {"host", "content-length", "accept-encoding", "connection",
+                         "x-openbrain-token", "cookie"}
 
 
 def _latest_user_text(messages: list) -> str:

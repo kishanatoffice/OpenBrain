@@ -165,7 +165,11 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const esc = (s) => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+// Escapes text for both element and attribute contexts: textContent handles
+// <,>,& and we additionally escape quotes so a value used in value="${esc(...)}"
+// can't break out of the attribute.
+const esc = (s) => { const d = document.createElement("div"); d.textContent = s;
+  return d.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;"); };
 
 // Local API token (Jupyter-style): capture it from the ?token= URL the daemon
 // opens, keep it in sessionStorage, and strip it from the address bar so it

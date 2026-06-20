@@ -153,7 +153,7 @@ class OllamaClient:
         except httpx.HTTPError:
             return None
         verdict = _THINK_RE.sub("", resp.json().get("response", "")).strip()
-        if not verdict or verdict.upper() == "NO" or verdict.upper().startswith("NO"):
+        if not verdict or verdict.upper().startswith("NO"):
             return None
         return verdict[:500]
 
@@ -171,6 +171,7 @@ class OllamaClient:
             "prompt": (f"Assistant's previous message:\n{prior_assistant}\n\n"
                        f"User's reply:\n{user_msg}"),
             "stream": False,
+            "think": False,
             "options": {"temperature": 0.0},
         }
         try:

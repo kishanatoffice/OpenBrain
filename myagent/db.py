@@ -330,6 +330,11 @@ class MemoryStore:
             ).fetchone()
             if row is None:
                 return None
+            # Resurrect any memory this one superseded: with its replacement gone,
+            # the original would otherwise stay hidden from recall forever.
+            conn.execute(
+                "UPDATE memories SET invalidated_at = NULL, invalidated_by = NULL "
+                "WHERE invalidated_by = ?", (memory_id,))
             conn.execute("DELETE FROM chunk_embeddings WHERE memory_id = ?", (memory_id,))
             conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         return _row_to_dict(row)
