@@ -1,0 +1,16 @@
+{
+  "name": "openbrain",
+  "displayName": "OpenBrain",
+  "version": "0.6.0",
+  "description": "Your private, local-first memory for every AI tool. Adds recall/remember/forget so Claude Code carries context across sessions — runs entirely on your machine, never phones home.",
+  "author": { "name": "Kishan Kumar" },
+  "homepage": "https://github.com/kishanatoffice/OpenBrain",
+  "repository": "https://github.com/kishanatoffice/OpenBrain",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "memory", "local-first", "recall", "second-brain"],
+  "mcpServers": {
+    "openbrain": {
+      "command": "openbrain-mcp"
+    }
+  }
+}

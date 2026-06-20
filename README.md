@@ -248,6 +248,16 @@ automatically — prefer it. Wiring by hand? HTTP transports need
 `?token=<your token>` (from `~/.myagent/token`) on the URL; the stdio command
 transport doesn't (it reads the DB directly as you).
 
+**Claude Code plugin (marketplace install).** After `uv tool install
+openbrain-memory` (so the `openbrain-mcp` command is on your PATH):
+
+```
+/plugin marketplace add kishanatoffice/OpenBrain
+/plugin install openbrain@openbrain
+```
+
+This registers the OpenBrain MCP server (stdio — no token needed) in Claude Code.
+
 **Claude Code** (covers every project, user-wide):
 
 ```bash

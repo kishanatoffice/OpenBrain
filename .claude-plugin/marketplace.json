@@ -1,0 +1,12 @@
+{
+  "name": "openbrain",
+  "owner": { "name": "Kishan Kumar" },
+  "description": "OpenBrain — private, local-first memory for every AI tool.",
+  "plugins": [
+    {
+      "name": "openbrain",
+      "source": "./",
+      "description": "Local-first memory MCP server (recall/remember/forget). Requires the `openbrain-mcp` command on PATH — install with `uv tool install openbrain-memory`."
+    }
+  ]
+}

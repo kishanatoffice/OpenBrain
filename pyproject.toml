@@ -42,6 +42,10 @@ Issues = "https://github.com/kishanatoffice/OpenBrain/issues"
 
 [project.scripts]
 openbrain = "myagent.__main__:main"
+# Stdio MCP entry point — what the Claude Code plugin (.claude-plugin/) launches.
+# Talks to the local store directly over stdio, so it needs no daemon and no
+# HTTP token (file-level access is the same-user boundary).
+openbrain-mcp = "myagent.mcp:main"
 
 [tool.hatch.version]
 path = "myagent/__init__.py"
