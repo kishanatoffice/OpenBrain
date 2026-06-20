@@ -45,6 +45,12 @@ claim to stop code running as you (which can read the token or DB directly —
 only full-disk encryption addresses that). Liveness (`/health`) and the empty
 dashboard shell (`/`) stay open; everything else is gated.
 
+**Benchmarks (reproducible).** On the bundled smoke set, real embeddings score
+**hit@1 90% / hit@3 100% / MRR 0.95**, and injecting memory lifts answer accuracy
+from **0% → 100%** on private-fact questions a base model can't know. Small N,
+honestly caveated — methodology + the `python -m evals.run --ollama` /
+`python -m evals.holdout` reproduce commands are in [BENCHMARKS.md](BENCHMARKS.md).
+
 ## Install & run
 
 One command does everything — installs deps, starts the background service,

@@ -15,10 +15,12 @@ queries through `recall_context`, and scores hit@k + MRR.
 ## Run
 
 ```bash
-.venv/bin/python -m evals.run
+.venv/bin/python -m evals.run            # deterministic hash-BoW (CI baseline)
+.venv/bin/python -m evals.run --ollama   # real embeddings (nomic-embed-text)
 ```
 
-About 1 second. No Ollama required.
+Default is ~1 second and needs no Ollama. `--ollama` uses your configured
+embedder for true semantic numbers. Published results: [../BENCHMARKS.md](../BENCHMARKS.md).
 
 ## What the numbers mean
 
@@ -86,6 +88,5 @@ and grade later from a user-feedback signal — is the natural follow-on.
 ## Next
 
 - baseline.json + non-zero exit on regression (retrieval)
-- `--ollama` flag for `evals.run` to score retrieval against real embeddings
 - online random-holdout in the proxy + a feedback signal to grade live traffic
-- expand to ~30 queries covering more edge cases
+- expand to a LoCoMo / LongMemEval subset (~30+ multi-session/temporal/no-answer)

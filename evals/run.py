@@ -89,7 +89,30 @@ async def _seed(deps: Deps, rows: list[dict]) -> dict[str, int]:
     return aliases
 
 
-async def _run(golden_path: Path) -> int:
+def _make_deps(tmp: str, use_ollama: bool) -> Deps:
+    """The eval's deps: a deterministic hash-BoW embedder by default (repeatable,
+    no Ollama, CI-safe), or the real configured Ollama with `--ollama` for true
+    semantic numbers."""
+    if use_ollama:
+        from myagent.config import load_config
+        from myagent.ollama import OllamaClient
+        cfg = load_config()
+        return Deps(
+            store=MemoryStore(Path(tmp) / "memories.db"),
+            vault=Vault(Path(tmp) / "vault"),
+            ollama=OllamaClient(cfg.ollama_url, cfg.ollama_model,
+                                cfg.ollama_embed_model),
+            min_similarity=cfg.recall_min_similarity,
+        )
+    return Deps(
+        store=MemoryStore(Path(tmp) / "memories.db"),
+        vault=Vault(Path(tmp) / "vault"),
+        ollama=HashBoWOllama(),
+        min_similarity=0.05,  # bag-of-words cosines are lower than real embeds
+    )
+
+
+async def _run(golden_path: Path, use_ollama: bool = False) -> int:
     rows = [json.loads(line) for line in golden_path.read_text().splitlines() if line.strip()]
     seeds = [r for r in rows if r["type"] == "seed"]
     queries = [r for r in rows if r["type"] == "query"]
@@ -98,12 +121,11 @@ async def _run(golden_path: Path) -> int:
         return 2
 
     with tempfile.TemporaryDirectory() as tmp:
-        deps = Deps(
-            store=MemoryStore(Path(tmp) / "memories.db"),
-            vault=Vault(Path(tmp) / "vault"),
-            ollama=HashBoWOllama(),
-            min_similarity=0.05,  # bag-of-words cosines are lower than real embeds
-        )
+        deps = _make_deps(tmp, use_ollama)
+        if use_ollama and not await deps.ollama.is_reachable():
+            print("--ollama set but Ollama is not reachable; start it and retry",
+                  file=sys.stderr)
+            return 2
         aliases = await _seed(deps, seeds)
 
         per_k = {k: 0 for k in K_VALUES}
@@ -128,7 +150,9 @@ async def _run(golden_path: Path) -> int:
                 failures.append((q["q"], q["expect"], ranked))
 
     n = len(queries)
-    print(f"\nOpenBrain retrieval eval — {n} queries against {len(seeds)} seed memories\n")
+    embedder = "real Ollama (nomic-embed-text)" if use_ollama else "hash-BoW (deterministic)"
+    print(f"\nOpenBrain retrieval eval — {n} queries against {len(seeds)} seed "
+          f"memories\n  embedder: {embedder}\n")
     print(f"  hit@1  {per_k[1]:>3}/{n}  ({per_k[1] / n:.0%})")
     print(f"  hit@3  {per_k[3]:>3}/{n}  ({per_k[3] / n:.0%})")
     print(f"  hit@5  {per_k[5]:>3}/{n}  ({per_k[5] / n:.0%})")
@@ -145,9 +169,11 @@ async def _run(golden_path: Path) -> int:
 
 
 def main() -> int:
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else \
-        Path(__file__).parent / "golden.jsonl"
-    return asyncio.run(_run(path))
+    args = sys.argv[1:]
+    use_ollama = "--ollama" in args
+    paths = [a for a in args if not a.startswith("--")]
+    path = Path(paths[0]) if paths else Path(__file__).parent / "golden.jsonl"
+    return asyncio.run(_run(path, use_ollama))
 
 
 if __name__ == "__main__":
