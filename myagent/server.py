@@ -24,6 +24,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+from . import __version__
 from .auth import extract_token, load_or_create_token, token_matches
 from .config import Config, load_config
 from .connectors import REGISTRY, is_enabled
@@ -219,7 +220,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                 task.cancel()
             await deps.ollama.aclose()
 
-    app = FastAPI(title="openbrain memory daemon", version="0.5.0",
+    app = FastAPI(title="openbrain memory daemon", version=__version__,
                   lifespan=lifespan)
 
     # Open endpoints (no token): liveness and the dashboard shell. The shell

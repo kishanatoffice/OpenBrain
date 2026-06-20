@@ -81,6 +81,19 @@ but excluded from recall), pin, edit, and delete.
 
 <details><summary>Manual install</summary>
 
+**Recommended — a global `openbrain` command via [uv](https://docs.astral.sh/uv/):**
+
+```bash
+uv tool install git+https://github.com/kishanatoffice/OpenBrain   # or:  uv tool install openbrain-memory  (once on PyPI)
+openbrain            # run the daemon
+openbrain connect    # wire your AI tools
+openbrain dashboard  # open the UI (with your token)
+```
+
+Add the OCR connector's heavy deps with `uv tool install 'openbrain-memory[ocr]'`.
+
+**Plain venv:**
+
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m myagent
 ```

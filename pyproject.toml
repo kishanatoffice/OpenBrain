@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openbrain-memory"
-version = "0.5.0"
+dynamic = ["version"]  # single-sourced from myagent/__init__.py
 description = "Your private, local-first memory for every AI tool — MCP + hooks + injecting proxy."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,8 +15,12 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 # Pinned with upper bounds so a breaking upstream release can't silently land.
 dependencies = [
@@ -32,10 +36,15 @@ dependencies = [
 ocr = ["markitdown[all]>=0.0.1a2,<1.0"]
 
 [project.urls]
-Homepage = "https://github.com/kishankumar/openbrain"
+Homepage = "https://github.com/kishanatoffice/OpenBrain"
+Repository = "https://github.com/kishanatoffice/OpenBrain"
+Issues = "https://github.com/kishanatoffice/OpenBrain/issues"
 
 [project.scripts]
 openbrain = "myagent.__main__:main"
+
+[tool.hatch.version]
+path = "myagent/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["myagent"]
