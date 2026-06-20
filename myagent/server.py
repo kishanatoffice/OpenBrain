@@ -24,6 +24,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+from .auth import extract_token, load_or_create_token, token_matches
 from .config import Config, load_config
 from .connectors import REGISTRY, is_enabled
 from .db import MemoryStore
@@ -192,6 +193,10 @@ def create_app(config: Config | None = None) -> FastAPI:
             ocr_convert_timeout_s=cfg.ocr_convert_timeout_s,
             ocr_max_image_pixels=cfg.ocr_max_image_pixels,
         )
+        # Local API token: gates every data/management endpoint so another local
+        # user or a malicious web page can't reach the brain. Stored 0600 next to
+        # the DB; created on first run.
+        app.state.token = load_or_create_token(cfg.db_path.parent)
         app.state.settings = _load_settings(cfg)
         deps.paused = app.state.settings["paused"]
         deps.enabled_connectors = _enabled_connectors(app.state.settings)
@@ -217,6 +222,27 @@ def create_app(config: Config | None = None) -> FastAPI:
     app = FastAPI(title="openbrain memory daemon", version="0.5.0",
                   lifespan=lifespan)
 
+    # Open endpoints (no token): liveness and the dashboard shell. The shell
+    # carries no data — it bootstraps the token from its `?token=` URL and sends
+    # it on every API call, so every data/management route below stays gated.
+    _OPEN_PATHS = {"/health", "/"}
+
+    @app.middleware("http")
+    async def require_token(request: Request, call_next):
+        """Gate every endpoint on the local API token, except the open shell +
+        liveness. CORS preflights pass (they carry no token by spec)."""
+        if request.method == "OPTIONS" or request.url.path in _OPEN_PATHS:
+            return await call_next(request)
+        token = getattr(request.app.state, "token", None)
+        provided = extract_token(request.headers, request.query_params)
+        if not token_matches(provided, token):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "missing or invalid OpenBrain token — open "
+                                   "the dashboard via `openbrain dashboard`"},
+            )
+        return await call_next(request)
+
     # ---- UI + health ---------------------------------------------------------
 
     @app.get("/", include_in_schema=False)
@@ -240,7 +266,9 @@ def create_app(config: Config | None = None) -> FastAPI:
             "mcp_http_url": f"http://127.0.0.1:{c.memory_port}/mcp",
             "mcp_stdio_command": [sys.executable, "-m", "myagent.mcp"],
             "injections": request.app.state.stats["injections"],
-            "last_query": request.app.state.stats["last_query"],
+            # last_query is intentionally NOT exposed here: /health is the one
+            # unauthenticated endpoint, and recent query text — even redacted —
+            # is private. It stays on the token-gated /stats.
             "paused": request.app.state.deps.paused,
             "degraded": any(request.app.state.health.values()),
             "background": request.app.state.health,
@@ -311,7 +339,8 @@ def create_app(config: Config | None = None) -> FastAPI:
         """One-click wiring of every detected AI tool (the dashboard button)."""
         from .connect import connect_tools
         c: Config = request.app.state.config
-        return connect_tools(f"http://127.0.0.1:{c.memory_port}/mcp")
+        return connect_tools(f"http://127.0.0.1:{c.memory_port}/mcp",
+                             token=request.app.state.token)
 
     @app.post("/pause")
     @app.post("/resume")

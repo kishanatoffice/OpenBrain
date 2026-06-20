@@ -25,7 +25,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
-class ServerCase(unittest.TestCase):
+class _ServerBase(unittest.TestCase):
+    """Shared fixture: a temp-backed app with auth provisioned. No tests here, so
+    subclasses don't re-run each other's cases."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         tmp = Path(self.tmp.name)
@@ -41,11 +44,20 @@ class ServerCase(unittest.TestCase):
         self.app.state.settings = {"paused": False, "preflight": False,
                                    "autocapture": False, "min_relevance": 0.6}
         self.app.state.health = {"enrichment": None, "sync": None}
+        # Lifespan is bypassed, so set the API token the auth middleware checks.
+        self.token = "test-token-123"
+        self.app.state.token = self.token
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def client(self):
+        # Authenticated by default so existing endpoint tests pass unchanged.
+        return AsyncClient(transport=ASGITransport(app=self.app),
+                           base_url="http://test",
+                           headers={"x-openbrain-token": self.token})
+
+    def anon_client(self):
         return AsyncClient(transport=ASGITransport(app=self.app),
                            base_url="http://test")
 
@@ -54,6 +66,8 @@ class ServerCase(unittest.TestCase):
                          headers={"x-source": "web-ui"})
         return r.json()
 
+
+class ServerCase(_ServerBase):
     def test_health_and_stats(self):
         async def go():
             async with self.client() as c:
@@ -171,6 +185,51 @@ class ServerCase(unittest.TestCase):
             async with self.client() as c:
                 r = await c.get("/memories?after=garbage")
                 self.assertEqual(r.status_code, 200)
+        run(go())
+
+
+class AuthCase(_ServerBase):
+    """The local API token gates data/management endpoints; the dashboard shell
+    and liveness stay open so the browser can bootstrap and probes can check up."""
+
+    def test_protected_endpoints_401_without_token(self):
+        async def go():
+            async with self.anon_client() as c:
+                for method, path in [("get", "/stats"), ("get", "/memories"),
+                                     ("get", "/export"), ("get", "/context"),
+                                     ("post", "/pause")]:
+                    r = await getattr(c, method)(path)
+                    self.assertEqual(r.status_code, 401, f"{method} {path}")
+                # /mcp must not be reachable unauthenticated — the core hole.
+                r = await c.post("/mcp", json={"jsonrpc": "2.0", "id": 1,
+                                               "method": "tools/list"})
+                self.assertEqual(r.status_code, 401)
+        run(go())
+
+    def test_open_endpoints_need_no_token(self):
+        async def go():
+            async with self.anon_client() as c:
+                self.assertEqual((await c.get("/health")).status_code, 200)
+                self.assertEqual((await c.get("/")).status_code, 200)
+        run(go())
+
+    def test_health_does_not_leak_last_query(self):
+        async def go():
+            async with self.anon_client() as c:
+                self.assertNotIn("last_query", (await c.get("/health")).json())
+        run(go())
+
+    def test_token_accepted_via_header_and_query(self):
+        async def go():
+            async with self.anon_client() as c:
+                self.assertEqual(
+                    (await c.get("/stats",
+                                 headers={"x-openbrain-token": self.token})).status_code,
+                    200)
+                self.assertEqual(
+                    (await c.get(f"/stats?token={self.token}")).status_code, 200)
+                self.assertEqual(
+                    (await c.get("/stats?token=wrong")).status_code, 401)
         run(go())
 
 

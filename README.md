@@ -26,6 +26,16 @@ search index + embeddings + the markdown file). Data is stored unencrypted at
 rest, so rely on full-disk encryption (FileVault/BitLocker). The daemon never
 phones home. Licensed Apache-2.0.
 
+**Local API token.** The daemon binds to `127.0.0.1`, but loopback is shared by
+every process and user on the machine. So every data/management endpoint
+requires a random token (stored `0600` at `~/.myagent/token`, created on first
+run). `connect` bakes it into each tool's MCP URL automatically and `openbrain
+dashboard` opens the UI with it — so this is invisible in normal use. It blocks
+*other users* and *malicious web pages* (CSRF/DNS-rebinding); it does **not**
+claim to stop code running as you (which can read the token or DB directly —
+only full-disk encryption addresses that). Liveness (`/health`) and the empty
+dashboard shell (`/`) stay open; everything else is gated.
+
 ## Install & run
 
 One command does everything — installs deps, starts the background service,
@@ -43,8 +53,10 @@ Windsurf, Codex, Zed**. It merges (never clobbers other servers), backs up
 originals, and is idempotent. Preview first with `--dry-run`; add project-level
 hooks/rules with `--project <dir>`.
 
-Then open **http://127.0.0.1:3111** — a clean dashboard with a **Controls**
-panel (toggle, no config files, no restart):
+Then run **`openbrain dashboard`** (or `python -m myagent dashboard`) to open the
+UI — it launches `http://127.0.0.1:3111` with your token attached, which the page
+captures and then strips from the address bar. A clean dashboard with a
+**Controls** panel (toggle, no config files, no restart):
 
 - **Memory** — master on/off; when off, the controls below dim and tools use only their own context.
 - **Ask before using** — when memory might not fit, the assistant asks first.
@@ -190,14 +202,17 @@ scope a single recall to that bucket — useful when one assistant should never
 see another's context (a billing agent shouldn't pull marketing notes).
 
 ```bash
+# data endpoints require the local token (header or ?token=); $TOK below:
+TOK=$(cat ~/.myagent/token)
+
 # only ns:policy memories surface
-curl 'http://127.0.0.1:3111/context?q=refund+window&ns=policy'
+curl -H "X-OpenBrain-Token: $TOK" 'http://127.0.0.1:3111/context?q=refund+window&ns=policy'
 
 # ns:policy OR the always-on persona
-curl 'http://127.0.0.1:3111/context?q=refund+window&ns=policy,core'
+curl -H "X-OpenBrain-Token: $TOK" 'http://127.0.0.1:3111/context?q=refund+window&ns=policy,core'
 
 # discoverable list of namespaces and their counts
-curl 'http://127.0.0.1:3111/namespaces'
+curl -H "X-OpenBrain-Token: $TOK" 'http://127.0.0.1:3111/namespaces'
 ```
 
 Namespaces are just tags with an `ns:` prefix — no migration, no separate
@@ -206,23 +221,29 @@ add `core` to the list to keep it.
 
 ## Connect your AI tools (one-time)
 
+`openbrain connect` wires every detected tool **and bakes in your local token**
+automatically — prefer it. Wiring by hand? HTTP transports need
+`?token=<your token>` (from `~/.myagent/token`) on the URL; the stdio command
+transport doesn't (it reads the DB directly as you).
+
 **Claude Code** (covers every project, user-wide):
 
 ```bash
-claude mcp add -s user --transport http openbrain http://127.0.0.1:3111/mcp
+claude mcp add -s user --transport http openbrain "http://127.0.0.1:3111/mcp?client=claude-code&token=$(cat ~/.myagent/token)"
 ```
 
 **Claude Desktop / Claude Cowork** — in `claude_desktop_config.json` under
-`mcpServers` (use your absolute venv path, shown in the web UI):
+`mcpServers` (stdio command; no token needed — use your absolute venv path):
 
 ```json
 "openbrain": { "command": "/path/to/open_brain/.venv/bin/python", "args": ["-m", "myagent.mcp"] }
 ```
 
-**Gemini CLI** — in `~/.gemini/settings.json` under `mcpServers`:
+**Gemini CLI** — in `~/.gemini/settings.json` under `mcpServers` (HTTP — include
+your token):
 
 ```json
-"openbrain": { "httpUrl": "http://127.0.0.1:3111/mcp" }
+"openbrain": { "httpUrl": "http://127.0.0.1:3111/mcp?client=gemini&token=YOUR_TOKEN" }
 ```
 
 **Cursor / Windsurf / Antigravity / VS Code** — any MCP client config accepts
@@ -233,7 +254,8 @@ a public remote URL, so a tunnel would be needed there).
 **No MCP at all?** Plain HTTP returns a ready-to-paste context block:
 
 ```bash
-curl 'http://127.0.0.1:3111/context?q=database+decisions&max_tokens=2000'
+curl -H "X-OpenBrain-Token: $(cat ~/.myagent/token)" \
+  'http://127.0.0.1:3111/context?q=database+decisions&max_tokens=2000'
 ```
 
 ### Make your agents actually use it

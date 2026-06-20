@@ -98,6 +98,25 @@ class TestDetection(unittest.TestCase):
                                 for a in cd.entry["args"]))
 
 
+class TestTokenBakedIntoUrls(unittest.TestCase):
+    def test_token_appended_to_every_tool_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bases = {"home": home, "appsupport": home / "AS", "xdg": home / "xdg"}
+            tools = _json_tools("http://x/mcp", bases, token="secret123")
+            for t in tools:
+                blob = json.dumps(t.entry)
+                self.assertIn("token=secret123", blob, t.label)
+                self.assertIn("client=", blob, t.label)  # provenance still there
+
+    def test_no_token_means_no_token_param(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bases = {"home": home, "appsupport": home / "AS", "xdg": home / "xdg"}
+            tools = _json_tools("http://x/mcp", bases)  # token defaults to ""
+            self.assertNotIn("token=", json.dumps([t.entry for t in tools]))
+
+
 class TestConnectTools(unittest.TestCase):
     def test_returns_structured_report_dry_run(self):
         # dry_run writes nothing; just assert the shape the UI/endpoint expects.

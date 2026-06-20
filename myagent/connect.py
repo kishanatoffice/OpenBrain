@@ -51,50 +51,56 @@ class JsonTool:
     entry: dict           # the openbrain server entry for this tool
 
 
-def _cu(base: str, client: str) -> str:
-    """Append ?client=<tool> so the daemon can record which tool wrote a memory
-    (provenance). HTTP MCP is stateless, but we own the URL we write here."""
+def _cu(base: str, client: str, token: str = "") -> str:
+    """Append ?client=<tool> (provenance) and, when set, &token=<tok> (the local
+    API token the daemon now requires). HTTP MCP is stateless, but we own the URL
+    we write here, so baking the token in keeps wiring zero-friction."""
     sep = "&" if "?" in base else "?"
-    return f"{base}{sep}client={client}"
+    url = f"{base}{sep}client={client}"
+    if token:
+        url += f"&token={token}"
+    return url
 
 
-def _json_tools(url: str, b: dict[str, Path]) -> list[JsonTool]:
+def _json_tools(url: str, b: dict[str, Path], token: str = "") -> list[JsonTool]:
     """Every JSON-config tool we know how to wire, for the current platform.
-    Each carries ?client=<key> so stored memories show their origin tool."""
+    Each carries ?client=<key> (origin tool) and the API token."""
+    def cu(client: str) -> str:
+        return _cu(url, client, token)
+
     return [
         JsonTool("Cursor", b["home"] / ".cursor",
                  b["home"] / ".cursor" / "mcp.json",
-                 "mcpServers", {"url": _cu(url, "cursor")}),
+                 "mcpServers", {"url": cu("cursor")}),
         JsonTool("Gemini CLI", b["home"] / ".gemini",
                  b["home"] / ".gemini" / "settings.json",
-                 "mcpServers", {"httpUrl": _cu(url, "gemini")}),
+                 "mcpServers", {"httpUrl": cu("gemini")}),
         JsonTool("Windsurf", b["home"] / ".codeium" / "windsurf",
                  b["home"] / ".codeium" / "windsurf" / "mcp_config.json",
-                 "mcpServers", {"serverUrl": _cu(url, "windsurf")}),
+                 "mcpServers", {"serverUrl": cu("windsurf")}),
         # Google Antigravity: ~/.gemini/antigravity/mcp_config.json (its own
         # subdir under ~/.gemini, distinct from Gemini CLI's settings.json).
         # Supports streamable HTTP natively via `serverUrl` (like Windsurf), so
         # no mcp-remote bridge is needed.
         JsonTool("Antigravity", b["home"] / ".gemini" / "antigravity",
                  b["home"] / ".gemini" / "antigravity" / "mcp_config.json",
-                 "mcpServers", {"serverUrl": _cu(url, "antigravity")}),
+                 "mcpServers", {"serverUrl": cu("antigravity")}),
         JsonTool("Claude Desktop", b["appsupport"] / "Claude",
                  b["appsupport"] / "Claude" / "claude_desktop_config.json",
                  # Claude Desktop only accepts stdio MCP entries (command/args);
                  # an {"url": ...} entry is silently dropped with a popup. Bridge
                  # to our local HTTP server via npx mcp-remote.
                  "mcpServers", {"command": "npx",
-                                "args": ["-y", "mcp-remote",
-                                         _cu(url, "claude-desktop")]}),
+                                "args": ["-y", "mcp-remote", cu("claude-desktop")]}),
         JsonTool("VS Code", b["appsupport"] / "Code" / "User",
                  b["appsupport"] / "Code" / "User" / "mcp.json",
-                 "servers", {"type": "http", "url": _cu(url, "vscode")}),
+                 "servers", {"type": "http", "url": cu("vscode")}),
         JsonTool("Zed", b["xdg"] / "zed",
                  b["xdg"] / "zed" / "settings.json",
                  "context_servers",
                  # Zed has no native HTTP transport yet — bridge via mcp-remote.
                  {"source": "custom", "command": "npx",
-                  "args": ["-y", "mcp-remote", _cu(url, "zed")]}),
+                  "args": ["-y", "mcp-remote", cu("zed")]}),
     ]
 
 
@@ -153,9 +159,10 @@ def _connect_cli(tool: str, args: list[str], dry_run: bool) -> str | None:
         return f"skipped ({exc})"
 
 
-def connect_tools(url: str, dry_run: bool = False) -> dict:
+def connect_tools(url: str, dry_run: bool = False, token: str = "") -> dict:
     """Detect installed tools and wire each. Returns a structured report so the
-    UI 'Connect' button and the CLI share one implementation."""
+    UI 'Connect' button and the CLI share one implementation. `token` (the local
+    API token) is baked into each tool's MCP URL so wiring stays zero-friction."""
     bases = _config_bases()
     connected: list[dict] = []
     not_installed: list[str] = []
@@ -163,8 +170,9 @@ def connect_tools(url: str, dry_run: bool = False) -> dict:
     for label, tool, addargs in [
         ("Claude Code", "claude",
          ["mcp", "add", "-s", "user", "--transport", "http", "openbrain",
-          _cu(url, "claude-code")]),
-        ("Codex", "codex", ["mcp", "add", "openbrain", "--url", _cu(url, "codex")]),
+          _cu(url, "claude-code", token)]),
+        ("Codex", "codex",
+         ["mcp", "add", "openbrain", "--url", _cu(url, "codex", token)]),
     ]:
         status = _connect_cli(tool, addargs, dry_run)
         if status:
@@ -172,7 +180,7 @@ def connect_tools(url: str, dry_run: bool = False) -> dict:
         else:
             not_installed.append(label)
 
-    for t in _json_tools(url, bases):
+    for t in _json_tools(url, bases, token):
         if t.detect.exists():
             connected.append({"label": t.label,
                               "status": _merge_server(t.path, t.servers_key,
@@ -193,11 +201,15 @@ def run_connect(argv: list[str] | None = None) -> None:
 
     cfg = load_config()
     url = f"http://127.0.0.1:{cfg.memory_port}/mcp"
+    # Same token file the daemon uses (idempotent): whether the daemon or
+    # `connect` runs first, both converge on one token, baked into each URL.
+    from .auth import load_or_create_token
+    token = load_or_create_token(cfg.db_path.parent)
 
     print("\n🔌  OpenBrain — connecting your AI tools"
           + ("  (dry run)" if dry_run else "") + "\n")
 
-    report = connect_tools(url, dry_run)
+    report = connect_tools(url, dry_run, token)
     if report["connected"]:
         print("Connected:")
         for c in report["connected"]:

@@ -166,8 +166,26 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+
+// Local API token (Jupyter-style): capture it from the ?token= URL the daemon
+// opens, keep it in sessionStorage, and strip it from the address bar so it
+// isn't shoulder-surfed or saved in history. Sent as a header on every call.
+(function () {
+  const u = new URL(window.location.href);
+  const t = u.searchParams.get("token");
+  if (t) {
+    sessionStorage.setItem("ob_token", t);
+    u.searchParams.delete("token");
+    window.history.replaceState({}, "", u.pathname + u.search + u.hash);
+  }
+})();
+const _token = () => sessionStorage.getItem("ob_token") || "";
+
 const api = async (path, opts) => {
-  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const headers = { "Content-Type": "application/json", ...(opts && opts.headers) };
+  if (_token()) headers["X-OpenBrain-Token"] = _token();
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401) throw new Error("Locked — open the dashboard via `openbrain dashboard` (token required).");
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.json();
 };

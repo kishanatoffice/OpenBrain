@@ -14,6 +14,9 @@ db_path = "~/.myagent/memories.db"
 # every request gets relevant memory injected before reaching the real model —
 # no hook needed, works on tools whose hooks cannot inject (Cursor, JetBrains,
 # Antigravity). Fails open: if recall errors, the request is forwarded as-is.
+# AUTH: this endpoint requires the local token too (it can read your memory).
+# Send it as the `X-OpenBrain-Token` header — `Authorization` is reserved for
+# your upstream model key. The token lives in ~/.myagent/token.
 proxy_upstream_url = "https://api.openai.com/v1"   # the real model API to forward to
 proxy_min_relevance = 0.60                          # drop hits below this before injecting
 proxy_recall_tokens = 1000                          # token budget for the injected block

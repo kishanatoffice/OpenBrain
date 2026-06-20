@@ -24,13 +24,27 @@ def _url(path: str = "") -> str:
     return f"http://127.0.0.1:{load_config().memory_port}{path}"
 
 
+def _token() -> str | None:
+    """The daemon's local API token, read (not created) from the data dir."""
+    from .auth import read_token
+    from .config import load_config
+    return read_token(load_config().db_path.parent)
+
+
+def _auth_headers() -> dict:
+    from .auth import HEADER
+    tok = _token()
+    return {HEADER: tok} if tok else {}
+
+
 def _get(path: str) -> dict:
-    with urllib.request.urlopen(_url(path), timeout=5) as r:
+    req = urllib.request.Request(_url(path), headers=_auth_headers())
+    with urllib.request.urlopen(req, timeout=5) as r:
         return json.loads(r.read())
 
 
 def _post(path: str) -> dict:
-    req = urllib.request.Request(_url(path), method="POST")
+    req = urllib.request.Request(_url(path), method="POST", headers=_auth_headers())
     with urllib.request.urlopen(req, timeout=5) as r:
         return json.loads(r.read())
 
@@ -83,7 +97,10 @@ def main() -> None:
             print("brain unreachable — daemon not responding")
     elif cmd in ("dashboard", "ui", "open"):
         import webbrowser
-        webbrowser.open(_url("/"))
+        # Open with the token in the URL (Jupyter-style): the page captures it,
+        # stores it for API calls, and strips it from the address bar.
+        tok = _token()
+        webbrowser.open(_url("/") + (f"?token={tok}" if tok else ""))
     elif cmd in ("-v", "--version", "version"):
         print(f"openbrain {__version__}")
     else:
