@@ -30,6 +30,14 @@ class TestRedact(unittest.TestCase):
         self.assertIn("password", clean)               # key name preserved
         self.assertNotIn("hunter2supersecret", clean)  # value gone
 
+    def test_assigned_secret_value_recurring_in_key_name(self):
+        # Regression: splice by span, not str.replace — when the value text also
+        # appears inside the key name, replace() would mangle the key name.
+        clean, found = redact("mytokenword: tokenword12345")
+        self.assertIn("assigned-secret", found)
+        self.assertTrue(clean.startswith("mytokenword:"))  # key name intact
+        self.assertNotIn("tokenword12345", clean)          # value gone
+
     def test_clean_text_untouched(self):
         text = "I prefer concise, production-ready answers and use Python + FastAPI."
         clean, found = redact(text)

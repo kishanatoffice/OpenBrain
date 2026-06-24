@@ -24,6 +24,23 @@ everywhere. True per-prompt injection is a Claude Code feature today; Copilot
 gets session-start injection; the rest are best-effort via rules. The only
 fully tool-independent guarantee is the **Level 3 proxy** (see below).
 
+## Authentication — the local API token
+
+Every endpoint except `/health` and the dashboard shell is gated by a local API
+token (stored `0600` at `~/.myagent/token`, or next to a custom `DB_PATH`). A
+request without it gets `401 {"detail":"missing or invalid OpenBrain token…"}`,
+so **memory silently won't recall or store** until the token is supplied.
+
+- **Recommended:** run `openbrain connect`. It detects installed tools and bakes
+  the current token into each MCP URL automatically (and is idempotent).
+- **Manual wiring:** the `mcp.json` templates here carry a `?token=PASTE_TOKEN…`
+  placeholder — replace it with the value from `~/.myagent/token`. The daemon
+  accepts the token as either the `?token=` query param or an
+  `X-OpenBrain-Token` header.
+- **The bash hooks** (`recall-hook.sh`, `session-recall-hook.sh`) read the token
+  from `$OPENBRAIN_TOKEN` or `$OPENBRAIN_DATA_DIR/token` (default `~/.myagent`),
+  so they need no manual edit as long as the daemon's data dir is discoverable.
+
 ## Level 3 — the memory-injecting proxy (tool-independent, built)
 
 For tools whose hooks can't inject (Cursor, JetBrains, Antigravity), point the

@@ -346,8 +346,12 @@ async def recall_context(deps: Deps, query: str,
     core_block, core_ids = "", set()
     if tag_set is None or CORE_TAG in tag_set:
         core_block, core_ids = _core_section(deps, int(budget * CORE_BUDGET_FRACTION))
+        # Subtract what the persona block actually consumed. Do NOT re-floor to
+        # MIN_RECALL_TOKENS here: the persona was already floored to a minimum
+        # inside _core_section, so flooring again would hand the query block a
+        # fresh full budget and let total output reach ~2x the requested cap.
         budget -= estimate_tokens(core_block) if core_block else 0
-        budget = max(MIN_RECALL_TOKENS, budget)
+        budget = max(0, budget)
 
     def _matches(row_tags: list[str]) -> bool:
         return tag_set is None or bool(tag_set.intersection(row_tags))

@@ -49,20 +49,33 @@ PY
 # Per-request opt-out: let the user bypass memory for a single prompt and go
 # with the plain LLM by including --no-memory / #nomem in their message.
 # Pattern mirrors _OPT_OUT in myagent/proxy.py — change both together.
-if printf '%s' "$query" | grep -qiE -e '(--no-memory|--no-brain|#nomem(ory)?|/nomem(ory)?)'; then
+if printf '%s' "$query" | grep -qiE -e '(--no-memory|--no-brain|(^|[[:space:]])[#/]nomem(ory)?([[:space:]]|$))'; then
   exit 0
+fi
+
+# Local API token: /context is gated since auth landed, so without this the
+# daemon answers 401 and recall silently breaks. Prefer $OPENBRAIN_TOKEN, else
+# read the token file the daemon writes next to its DB ($OPENBRAIN_DATA_DIR or
+# ~/.myagent). Sent as the ?token= query param (extract_token accepts it).
+TOKEN="${OPENBRAIN_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+  TOKEN_FILE="${OPENBRAIN_DATA_DIR:-$HOME/.myagent}/token"
+  [ -f "$TOKEN_FILE" ] && TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
 fi
 
 block="$(curl -s --max-time 4 --get \
   --data-urlencode "q=${query}" \
   --data-urlencode "max_tokens=${MAX_TOKENS}" \
   --data-urlencode "min_relevance=${MIN_RELEVANCE}" \
+  --data-urlencode "token=${TOKEN}" \
   "http://127.0.0.1:${PORT}/context" 2>/dev/null || true)"
 
 [ -z "$block" ] && exit 0
-# Daemon's "nothing relevant" replies — don't inject an empty section.
+# Daemon's "nothing relevant" replies — don't inject an empty section. Also bail
+# on any JSON error envelope (e.g. a 401 {"detail":...}) so a misconfigured token
+# never leaks the error string into the user's prompt as if it were memory.
 case "$block" in
-  *"no memories match"*|*"No memories"*) exit 0 ;;
+  '{"detail"'*|*"no memories match"*|*"No memories"*) exit 0 ;;
 esac
 
 # Wrapped so the agent can tell injected memory from the user's own words.

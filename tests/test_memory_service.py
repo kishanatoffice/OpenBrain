@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from myagent.memory_service import (
+    MIN_RECALL_TOKENS,
     _pack,
     apply_supersession,
     chunk_text,
@@ -223,6 +224,18 @@ class TestCorePersonaLayer(unittest.TestCase):
                           tags=["core"]))
         block = run(recall_context(deps, "", 2000))
         self.assertIn("product manager", block)
+
+    def test_total_output_respects_small_budget_with_core(self):
+        # Regression: the persona block and query block were each independently
+        # floored back to MIN_RECALL_TOKENS, letting total output reach ~2x the
+        # requested cap. Total must stay within ~budget.
+        deps = make_deps(self.tmp.name)
+        for i in range(6):
+            run(create_memory(
+                deps, ("Persona fact %d: a fairly long sentence of context "
+                       "about the user. " % i) * 4, tags=["core"]))
+        block = run(recall_context(deps, "", MIN_RECALL_TOKENS))
+        self.assertLessEqual(estimate_tokens(block), int(MIN_RECALL_TOKENS * 1.35))
 
     def test_no_duplicate_when_core_also_matches_query(self):
         deps = make_deps(self.tmp.name, vectors={

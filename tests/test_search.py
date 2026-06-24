@@ -74,6 +74,13 @@ class TestDecay(unittest.TestCase):
         created = (datetime.now(timezone.utc) - timedelta(days=3650)).isoformat()
         self.assertEqual(decay_weight(created, 0), 1.0)
 
+    def test_naive_timestamp_does_not_crash(self):
+        # Regression: a tz-naive created_at (e.g. an imported row) must be
+        # treated as UTC, not raise "can't subtract offset-naive and aware".
+        w = decay_weight("2020-01-01T00:00:00", 30.0)
+        self.assertGreater(w, 0.0)
+        self.assertLessEqual(w, 1.0)
+
 
 class TestChunkPooling(unittest.TestCase):
     def test_max_pool_picks_best_chunk_per_memory(self):

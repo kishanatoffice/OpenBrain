@@ -266,10 +266,20 @@ def default_enabled_keys() -> frozenset[str]:
     return frozenset(c.key for c in REGISTRY.values() if c.default_enabled)
 
 
+def _always_on_keys() -> frozenset[str]:
+    """Non-toggleable connectors — the core promise. Active regardless of the
+    caller-supplied set, so the built-ins can never be switched off."""
+    return frozenset(c.key for c in REGISTRY.values() if not c.toggleable)
+
+
 def _resolve_enabled(enabled: Iterable[str] | None) -> frozenset[str]:
     """None means 'use defaults' — so a Deps built without explicit connector
-    state (e.g. the stdio entrypoint, tests) still exposes the built-ins."""
-    return default_enabled_keys() if enabled is None else frozenset(enabled)
+    state (e.g. the stdio entrypoint, tests) still exposes the built-ins. A
+    non-toggleable connector is force-added even when the caller passes an
+    explicit set that omits it, so the always-on invariant holds at this layer
+    (defense in depth) rather than depending on every caller to re-add it."""
+    base = default_enabled_keys() if enabled is None else frozenset(enabled)
+    return base | _always_on_keys()
 
 
 def is_enabled(key: str, enabled: Iterable[str] | None) -> bool:

@@ -71,9 +71,14 @@ def redact(text: str) -> tuple[str, list[str]]:
         def repl(m: re.Match) -> str:
             found.append(label)
             # For assigned-secret, keep the key name (group 1), redact only the
-            # value (group 2).
+            # value (group 2). Splice by span rather than str.replace: the value
+            # text can recur inside the key name (e.g. "mytokenword: tokenword"),
+            # and replace() would mangle the name and any other occurrence.
             if label == "assigned-secret":
-                return m.group(0).replace(m.group(2), _PLACEHOLDER.format(label))
+                base = m.start()
+                vs, ve = m.span(2)
+                whole = m.group(0)
+                return whole[: vs - base] + _PLACEHOLDER.format(label) + whole[ve - base :]
             return _PLACEHOLDER.format(label)
         return repl
 

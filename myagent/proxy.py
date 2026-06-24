@@ -48,8 +48,11 @@ _MARKER = "<openbrain-memory>"
 # for this turn and answer with the plain LLM. The flag is stripped before
 # forwarding so the model never sees it. Kept in sync with the bash regex in
 # scripts/recall-hook.sh — change both together.
-_OPT_OUT = re.compile(r"(--no-memory|--no-brain|#nomem(?:ory)?|/nomem(?:ory)?)",
-                      re.IGNORECASE)
+# The bare #nomem / /nomem tokens need a left boundary (start or whitespace) and
+# a trailing word boundary, or they fire inside ordinary text like
+# "/var/nomemory/x" or "the #nomemory channel" and silently disable memory.
+_OPT_OUT = re.compile(
+    r"(--no-memory|--no-brain|(?:^|\s)[#/]nomem(?:ory)?\b)", re.IGNORECASE)
 
 
 def _has_opt_out(text: str) -> bool:
@@ -69,7 +72,7 @@ def _strip_opt_out(messages: list) -> list:
             new["content"] = _OPT_OUT.sub("", content).strip()
         elif isinstance(content, list):
             new["content"] = [
-                {**p, "text": _OPT_OUT.sub("", p["text"]).strip()}
+                {**p, "text": _OPT_OUT.sub("", p.get("text", "")).strip()}
                 if isinstance(p, dict) and p.get("type") == "text" else p
                 for p in content
             ]

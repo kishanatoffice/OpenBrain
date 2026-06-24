@@ -118,5 +118,10 @@ def decay_weight(created_at_iso: str, half_life_days: float) -> float:
     if half_life_days <= 0:
         return 1.0
     created = datetime.fromisoformat(created_at_iso)
+    # A naive timestamp (e.g. from an imported/restored row) would raise
+    # "can't subtract offset-naive and offset-aware" and crash the whole recall
+    # pass — assume UTC, which is what the write path always stores.
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
     age_days = (datetime.now(timezone.utc) - created).total_seconds() / 86_400
     return 2.0 ** (-max(age_days, 0.0) / half_life_days)

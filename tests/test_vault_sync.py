@@ -110,6 +110,20 @@ class TestSync(unittest.TestCase):
         self.assertIsNotNone(fresh)
         self.assertIsNone(fresh["md_path"])
 
+    def test_renamed_file_relinks_instead_of_duplicating(self):
+        # Regression: a rename is one delete + one new file. The new file must
+        # re-link to the detached row by content, not import a duplicate memory.
+        memory = run(create_memory(self.deps, "unique renamable body", source="rest"))
+        old = memory["md_path"]
+        new = self.deps.vault.path / "user-renamed-note.md"
+        os.rename(old, new)
+        age(new)
+        counts = run(sync_once(self.deps))
+        self.assertEqual(self.deps.store.count(), 1)        # no duplicate
+        self.assertEqual(counts["imported"], 0)
+        self.assertEqual(counts.get("adopted"), 1)
+        self.assertEqual(self.deps.store.get(memory["id"])["md_path"], str(new))
+
 
 if __name__ == "__main__":
     unittest.main()

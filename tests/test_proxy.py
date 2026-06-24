@@ -14,12 +14,14 @@ from myagent.proxy import (
     _compose_menu,
     _draft_gate_menu,
     _find_gate,
+    _has_opt_out,
     _inject,
     _latest_user_text,
     _maybe_inject,
     _parse_gate_choice,
     _prior_assistant_text,
     _resolve_gate_answer,
+    _strip_opt_out,
 )
 
 from .helpers import make_deps
@@ -161,6 +163,26 @@ class TestMaybeInject(unittest.TestCase):
         joined = str(out["messages"])
         self.assertNotIn("<openbrain-memory>", joined)
         self.assertNotIn("#nomem", joined)
+
+    def test_opt_out_not_triggered_by_substring(self):
+        # Regression: the bare #nomem/​/nomem tokens need word boundaries, or
+        # ordinary paths/words silently disable memory.
+        self.assertFalse(_has_opt_out("see /var/nomemory/config for details"))
+        self.assertFalse(_has_opt_out("the xnomem channel"))
+        self.assertTrue(_has_opt_out("--no-memory"))
+        self.assertTrue(_has_opt_out("please #nomem thanks"))
+        self.assertTrue(_has_opt_out("answer #nomemory"))
+
+    def test_strip_opt_out_tolerates_part_without_text_key(self):
+        # Regression: a text part missing the "text" field must not raise
+        # KeyError (which would be swallowed, leaking the flag upstream).
+        msgs = [{"role": "user", "content": [
+            {"type": "text"},  # no "text" key
+            {"type": "text", "text": "hello --no-memory"}]}]
+        out = _strip_opt_out(msgs)
+        joined = str(out)
+        self.assertNotIn("--no-memory", joined)
+        self.assertIn("hello", joined)
 
     def test_fails_open_on_bad_body(self):
         deps = self._deps_with_memory()
