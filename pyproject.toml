@@ -46,9 +46,11 @@ openbrain = "myagent.__main__:main"
 # Talks to the local store directly over stdio, so it needs no daemon and no
 # HTTP token (file-level access is the same-user boundary).
 openbrain-mcp = "myagent.mcp:main"
+# OpenBrain Guard Rails (V2) — standalone daemon that captures AI approval events.
+openbrain-guardrails = "guardrails.__main__:main"
 
 [tool.hatch.version]
 path = "myagent/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["myagent"]
+packages = ["myagent", "guardrails"]

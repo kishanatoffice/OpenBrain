@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenBrain Guard Rails — approval event log</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1c2230; --muted: #6b7280;
+    --accent: #5b5bd6; --accent-soft: #eceefb; --line: #e6e8ee;
+    --good: #22c55e; --bad: #ef4444; --amber: #f59e0b; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 30px 26px 80px; }
+  .head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  .dot { width: 38px; height: 38px; border-radius: 50%; background: #d1d5db; flex: none; transition: .3s; }
+  .dot.on { background: var(--good); box-shadow: 0 0 18px rgba(34,197,94,.5); }
+  .dot.off { background: var(--bad); box-shadow: 0 0 18px rgba(239,68,68,.45); }
+  .head h1 { margin: 0; font-size: 1.4rem; } .head .sub { margin: 2px 0 0; color: var(--muted); font-size: .85rem; }
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 11px 15px; flex: 1; min-width: 110px; }
+  .stat .n { font-size: 1.4rem; font-weight: 700; } .stat .l { font-size: .74rem; color: var(--muted); margin-top: 2px; }
+  .work { display: grid; grid-template-columns: 230px 1fr; gap: 18px; }
+  @media (max-width: 760px) { .work { grid-template-columns: 1fr; } }
+  .rail { font-size: .85rem; position: sticky; top: 20px; align-self: start; max-height: calc(100vh - 40px); overflow-y: auto; }
+  @media (max-width: 760px) { .rail { position: static; max-height: none; } }
+  .rail .grp { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+  .rail .grp:first-child { margin-top: 0; }
+  .rail .item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); }
+  .rail .item:hover { background: var(--card); }
+  .rail .item.active { background: var(--accent); color: #fff; }
+  .rail .item .ct { margin-left: auto; font-size: .72rem; opacity: .7; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
+  .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card-head h4 { margin: 0; font-size: .92rem; }
+  .card-head .actions { margin-left: auto; }
+  .field { margin-top: 9px; }
+  .field .k { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .field .v { font-size: .88rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+  .prompt { background: #f0f1f6; border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 11px; font-family: ui-monospace, Menlo, monospace; font-size: .82rem; }
+  .pill { font-size: .7rem; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .pill.gray { background: #eef1f6; color: #475569; }
+  .pill.good { background: #dcfce7; color: #166534; } .pill.bad { background: #fee2e2; color: #991b1b; }
+  .pill.amber { background: #fef3c7; color: #92400e; }
+  .opts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .opt { font-size: .76rem; padding: 2px 9px; border-radius: 7px; border: 1px solid var(--line); color: var(--muted); }
+  .opt.chosen { border-color: var(--good); color: #166534; background: #f0fdf4; font-weight: 600; }
+  .meta { font-size: .73rem; color: var(--muted); margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { all: unset; cursor: pointer; background: var(--accent); color: white; padding: 8px 14px; border-radius: 9px; font-size: .84rem; font-weight: 600; text-align: center; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+  .btn.danger { background: transparent; color: var(--bad); border: 1px solid #fecaca; font-weight: 500; padding: 4px 10px; font-size: .76rem; }
+  .btn.danger-solid { background: var(--bad); color: #fff; border: none; padding: 8px 14px; font-size: .84rem; font-weight: 600; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(20,22,29,.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+  .modal-overlay[hidden] { display: none; }
+  .modal-box { background: var(--card); border-radius: var(--radius); padding: 22px 24px; max-width: 430px; width: 100%; box-shadow: 0 18px 50px rgba(0,0,0,.25); }
+  .modal-box h3 { margin: 0 0 8px; } .modal-box p { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .toast-wrap { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 1100; align-items: center; pointer-events: none; }
+  .toast { background: #14161d; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: .85rem; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+  .toast.bad { background: var(--bad); } .toast.good { background: var(--good); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="dot" id="dot"></div>
+    <div><h1>🛡 OpenBrain Guard Rails</h1><p class="sub" id="sub">approval & permission event log</p></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n" id="s-total">—</div><div class="l">events captured</div></div>
+    <div class="stat"><div class="n" id="s-completed">—</div><div class="l">✅ completed</div></div>
+    <div class="stat"><div class="n" id="s-pending">—</div><div class="l">⏳ pending</div></div>
+    <div class="stat"><div class="n" id="s-success">—</div><div class="l">success results</div></div>
+    <div class="stat"><div class="n" id="s-failure">—</div><div class="l">failure results</div></div>
+  </div>
+
+  <div class="work">
+    <div class="rail" id="rail"></div>
+    <div>
+      <div id="crumb" style="font-size:.82rem;color:var(--muted);margin-bottom:10px;display:none"></div>
+      <div id="list"></div>
+      <div class="row" style="justify-content:center;margin-top:8px">
+        <button class="btn ghost" id="more" style="display:none">Load more</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-root" class="modal-overlay" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <h3 id="modal-title"></h3>
+    <p id="modal-msg"></p>
+    <div class="row" style="justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" id="modal-cancel">Cancel</button>
+      <button class="btn" id="modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+<div id="toast-wrap" class="toast-wrap"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; };
+
+// Capture the local token from ?token= (then strip it from the address bar).
+(function () {
+  const u = new URL(window.location.href);
+  const t = u.searchParams.get("token");
+  if (t) { sessionStorage.setItem("gr_token", t); u.searchParams.delete("token");
+    window.history.replaceState({}, "", u.pathname + u.search + u.hash); }
+})();
+const _token = () => sessionStorage.getItem("gr_token") || "";
+const api = async (path, opts) => {
+  const headers = { "Content-Type": "application/json", ...(opts && opts.headers) };
+  if (_token()) headers["X-Guardrails-Token"] = _token();
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401) throw new Error("Locked — open via `openbrain-guardrails dashboard` (token required).");
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+};
+
+// In-page modal + toast (native confirm()/alert() are suppressed in embedded webviews).
+let _modalResolve = null;
+function confirmDialog({ title = "Are you sure?", message = "", confirmLabel = "OK", danger = false } = {}) {
+  $("modal-title").textContent = title; $("modal-msg").textContent = message;
+  const ok = $("modal-ok"); ok.textContent = confirmLabel; ok.className = danger ? "btn danger-solid" : "btn";
+  $("modal-root").hidden = false; ok.focus();
+  return new Promise((resolve) => { _modalResolve = resolve; });
+}
+function _closeModal(r) { if ($("modal-root").hidden) return; $("modal-root").hidden = true; const f = _modalResolve; _modalResolve = null; if (f) f(r); }
+$("modal-ok").onclick = () => _closeModal(true);
+$("modal-cancel").onclick = () => _closeModal(false);
+$("modal-root").onclick = (e) => { if (e.target === $("modal-root")) _closeModal(false); };
+document.addEventListener("keydown", (e) => { if ($("modal-root").hidden) return; if (e.key === "Escape") _closeModal(false); else if (e.key === "Enter") _closeModal(true); });
+function toast(msg, kind = "") { const el = document.createElement("div"); el.className = "toast" + (kind ? " " + kind : ""); el.textContent = msg; $("toast-wrap").appendChild(el); setTimeout(() => el.remove(), 4000); }
+
+let filter = {};      // {ide?, agent?, status?, selected_option?, result?}
+let cursor = null;
+
+function buildUrl(after) {
+  const p = new URLSearchParams({ limit: "30" });
+  for (const k of ["ide", "agent", "status", "selected_option"]) if (filter[k]) p.set(k, filter[k]);
+  if (after) p.set("after", after);
+  return "/events?" + p.toString();
+}
+
+async function refresh() {
+  try {
+    const h = await api("/health");
+    $("dot").className = "dot on";
+    $("sub").textContent = `daemon on :${h.port} · ${h.total_events} events`;
+    const s = await api("/stats");
+    $("s-total").textContent = s.total;
+    $("s-completed").textContent = s.by_status.completed || 0;
+    $("s-pending").textContent = s.by_status.pending || 0;
+    const byResult = Object.fromEntries((s.by_result || []).map(r => [r.value, r.count]));
+    $("s-success").textContent = byResult.success || 0;
+    $("s-failure").textContent = byResult.failure || 0;
+    renderRail(s);
+  } catch (e) {
+    $("dot").className = "dot off"; $("sub").textContent = "daemon not responding — start with `openbrain-guardrails run`";
+  }
+}
+
+function renderRail(s) {
+  const rail = $("rail");
+  const facet = (group, key, list) => {
+    if (!list || !list.length) return "";
+    let html = `<div class="grp">${group}</div>`;
+    for (const it of list) {
+      const active = filter[key] === it.value;
+      html += `<div class="item${active ? " active" : ""}" data-key="${esc(key)}" data-val="${esc(it.value)}">${esc(it.value)}<span class="ct">${it.count}</span></div>`;
+    }
+    return html;
+  };
+  const statusList = Object.entries(s.by_status || {}).map(([value, count]) => ({ value, count }));
+  rail.innerHTML =
+    `<div class="item${Object.keys(filter).length === 0 ? " active" : ""}" data-clear="1">All events<span class="ct">${s.total}</span></div>` +
+    facet("Status", "status", statusList) +
+    facet("IDE", "ide", s.by_ide) +
+    facet("Agent", "agent", s.by_agent) +
+    facet("User choice", "selected_option", s.by_selected_option);
+  rail.querySelectorAll("[data-clear]").forEach(el => el.onclick = () => { filter = {}; load(); refresh(); });
+  rail.querySelectorAll("[data-key]").forEach(el => el.onclick = () => {
+    const k = el.dataset.key;
+    if (filter[k] === el.dataset.val) delete filter[k]; else filter[k] = el.dataset.val;
+    load(); refresh();
+  });
+}
+
+async function load() { cursor = null; $("list").innerHTML = ""; await appendPage(true); }
+async function appendPage(reset) {
+  let data;
+  try { data = await api(buildUrl(cursor)); }
+  catch (e) { $("list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  cursor = data.next; $("more").style.display = cursor ? "" : "none";
+  if (reset && !data.events.length) {
+    $("list").innerHTML = `<div class="empty">🛡 No approval events captured yet. Wire the Claude Code hook with <code>openbrain-guardrails connect</code>.</div>`;
+    return;
+  }
+  data.events.forEach(ev => $("list").appendChild(card(ev)));
+}
+
+function statusPill(st) { const c = st === "completed" ? "good" : st === "decided" ? "amber" : "gray"; return `<span class="pill ${c}">${esc(st)}</span>`; }
+function resultPill(r) { if (!r) return ""; const c = r === "success" ? "good" : r === "failure" ? "bad" : "gray"; return `<span class="pill ${c}">result: ${esc(r)}</span>`; }
+
+function card(ev) {
+  const el = document.createElement("div"); el.className = "card";
+  const opts = (ev.options || []).map(o =>
+    `<span class="opt${ev.selected_option === o ? " chosen" : ""}">${esc(o)}${ev.selected_option === o ? " ✓" : ""}</span>`).join("");
+  const field = (k, v) => v ? `<div class="field"><div class="k">${k}</div><div class="v">${esc(v)}</div></div>` : "";
+  el.innerHTML = `
+    <div class="card-head">
+      <h4>Event #${ev.id}</h4>
+      ${statusPill(ev.status)} ${resultPill(ev.result)}
+      ${ev.metadata && ev.metadata._redacted ? '<span class="pill amber">🔒 redacted</span>' : ""}
+      <div class="actions"><button class="btn danger" data-del>Delete</button></div>
+    </div>
+    ${field("User request", ev.user_request)}
+    ${field("Agent action", ev.agent_action)}
+    <div class="field"><div class="k">Approval prompt</div><div class="v prompt">${esc(ev.prompt_text)}</div></div>
+    ${(ev.options || []).length ? `<div class="field"><div class="k">Options</div><div class="opts">${opts}</div></div>` : ""}
+    ${field("Selected", ev.selected_option)}
+    ${field("Result detail", ev.result_detail)}
+    <div class="meta">
+      ${ev.ide ? `<span>🖥 ${esc(ev.ide)}</span>` : ""}
+      ${ev.agent ? `<span>🤖 ${esc(ev.agent)}</span>` : ""}
+      ${ev.repository ? `<span>📁 ${esc(ev.repository)}</span>` : ""}
+      ${ev.branch ? `<span>🌿 ${esc(ev.branch)}</span>` : ""}
+      ${ev.tool_name ? `<span>🔧 ${esc(ev.tool_name)}</span>` : ""}
+      ${ev.session_id ? `<span>session ${esc(String(ev.session_id).slice(0, 8))}</span>` : ""}
+      <span>${esc(new Date(ev.created_at).toLocaleString())}</span>
+    </div>`;
+  el.querySelector("[data-del]").onclick = async () => {
+    try {
+      const ok = await confirmDialog({ title: `Delete event #${ev.id}?`, message: "This permanently removes the approval record.", confirmLabel: "Delete", danger: true });
+      if (!ok) return;
+      await api(`/events/${ev.id}`, { method: "DELETE" });
+      toast(`Deleted event #${ev.id}.`, "good"); load(); refresh();
+    } catch (e) { toast(e.message || "Delete failed.", "bad"); }
+  };
+  return el;
+}
+
+$("more").onclick = () => appendPage(false);
+refresh(); load(); setInterval(refresh, 15000);
+</script>
+</body>
+</html>
