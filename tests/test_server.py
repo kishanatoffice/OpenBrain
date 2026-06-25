@@ -99,6 +99,19 @@ class ServerCase(_ServerBase):
                 self.assertEqual((await c.get("/memories?archived=true")).json()["count"], 0)
         run(go())
 
+    def test_edit_redacts_secrets(self):
+        # Regression: editing is a write boundary too — a secret pasted into the
+        # edit box must be scrubbed before it lands in the DB and vault.
+        async def go():
+            async with self.client() as c:
+                m = await self._post_memory(c, "a harmless note", [])
+                edited = (await c.patch(
+                    f"/memories/{m['id']}",
+                    json={"content": 'api_key = "supersecretvalue123"'})).json()
+                self.assertNotIn("supersecretvalue123", edited["content"])
+                self.assertIn("[REDACTED:assigned-secret]", edited["content"])
+        run(go())
+
     def test_pagination_cursor(self):
         # Distinct vectors so dedup (cosine>=0.95) doesn't collapse them into one.
         contents = [f"distinct memory {i} alpha bravo" for i in range(5)]

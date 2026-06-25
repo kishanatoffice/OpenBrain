@@ -51,6 +51,35 @@ class TestStore(unittest.TestCase):
         self.assertEqual(self.store.count_by_tag("core"), 1)
         self.assertFalse(self.store.set_tags(9999, ["x"]))
 
+    def test_tag_like_wildcards_are_escaped(self):
+        # Regression: a literal % or _ in a tag must match literally, not as a
+        # LIKE wildcard.
+        self.store.add("x", "s", tags=["abc"])
+        self.store.add("y", "s", tags=["a%c"])
+        self.store.add("z", "s", tags=["axc"])
+        self.assertEqual(self.store.count_by_tag("a%c"), 1)
+        self.assertEqual(self.store.count_by_tag("abc"), 1)
+        self.assertEqual(len(self.store.by_tag("a%c")), 1)
+        self.assertEqual(len(self.store.browse(tag="a%c")["rows"]), 1)
+
+    def test_missing_embeddings_skips_whitespace_only_content(self):
+        # Regression: blank content can never gain an embedding, so it must not
+        # be re-selected forever by the enricher.
+        good = self.store.add("real content", "s")
+        blank = self.store.add("   ", "s")
+        ids = {r["id"] for r in self.store.missing_embeddings("any-model")}
+        self.assertIn(good["id"], ids)
+        self.assertNotIn(blank["id"], ids)
+
+    def test_all_stopword_search_returns_empty_not_full_list(self):
+        # Regression: a query that reduces to nothing after stopword stripping
+        # must return no matches, not silently list the whole store.
+        for i in range(3):
+            self.store.add(f"kubernetes fact {i}", "s")
+        self.assertEqual(self.store.browse(q="the a is")["rows"], [])
+        self.assertIsNone(self.store.browse(q="the a is")["next"])
+        self.assertEqual(len(self.store.browse(q="kubernetes")["rows"]), 3)
+
     def test_browse_filters_pagination_and_flags(self):
         for i in range(5):
             self.store.add(f"memory number {i}", "s", tags=["work"], source="cursor")

@@ -81,6 +81,22 @@
   .rail .item:hover { background: var(--card); }
   .rail .item.active { background: var(--accent); color: #fff; }
   .rail .item .ct { margin-left: auto; font-size: .72rem; opacity: .7; }
+
+  /* ---- in-page modal + toast (replace native confirm/alert, which embedded
+         webviews and sandboxed iframes suppress) ---- */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(20,22,29,.45);
+    display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+  .modal-overlay[hidden] { display: none; }
+  .modal-box { background: var(--card); border-radius: var(--radius); padding: 22px 24px;
+    max-width: 430px; width: 100%; box-shadow: 0 18px 50px rgba(0,0,0,.25); }
+  .modal-box h3 { margin: 0 0 8px; }
+  .modal-box p { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.5; white-space: pre-wrap; }
+  .btn.danger-solid { background: var(--bad); color: #fff; border: none; padding: 9px 16px; font-size: .88rem; font-weight: 600; }
+  .toast-wrap { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 8px; z-index: 1100; align-items: center; pointer-events: none; }
+  .toast { background: #14161d; color: #fff; padding: 10px 16px; border-radius: 10px;
+    font-size: .85rem; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 90vw; }
+  .toast.bad { background: var(--bad); } .toast.good { background: var(--good); }
 </style>
 </head>
 <body>
@@ -163,6 +179,20 @@
   </div>
 </div>
 
+<!-- Confirmation modal + toast host: DOM-based so they work inside sandboxed
+     iframes / embedded webviews that suppress window.confirm()/alert(). -->
+<div id="modal-root" class="modal-overlay" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h3 id="modal-title"></h3>
+    <p id="modal-msg"></p>
+    <div class="row" style="justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" id="modal-cancel">Cancel</button>
+      <button class="btn" id="modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+<div id="toast-wrap" class="toast-wrap"></div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 // Escapes text for both element and attribute contexts: textContent handles
@@ -194,6 +224,44 @@ const api = async (path, opts) => {
   return r.json();
 };
 const saveSetting = (patch) => api("/settings", { method: "PUT", body: JSON.stringify(patch) });
+
+// In-page dialogs. Native confirm()/alert() are unreliable: sandboxed iframes
+// and embedded webviews suppress them — the dialog flashes and confirm() returns
+// false immediately, so an action can never be confirmed — and browsers throttle
+// repeated ones. These DOM equivalents stay open until the user acts.
+let _modalResolve = null;
+function confirmDialog({ title = "Are you sure?", message = "", confirmLabel = "OK", danger = false } = {}) {
+  $("modal-title").textContent = title;
+  $("modal-msg").textContent = message;
+  const ok = $("modal-ok");
+  ok.textContent = confirmLabel;
+  ok.className = danger ? "btn danger-solid" : "btn";
+  $("modal-root").hidden = false;
+  ok.focus();
+  return new Promise((resolve) => { _modalResolve = resolve; });
+}
+function _closeModal(result) {
+  if ($("modal-root").hidden) return;
+  $("modal-root").hidden = true;
+  const r = _modalResolve; _modalResolve = null;
+  if (r) r(result);
+}
+$("modal-ok").onclick = () => _closeModal(true);
+$("modal-cancel").onclick = () => _closeModal(false);
+$("modal-root").onclick = (e) => { if (e.target === $("modal-root")) _closeModal(false); };
+document.addEventListener("keydown", (e) => {
+  if ($("modal-root").hidden) return;
+  if (e.key === "Escape") _closeModal(false);
+  else if (e.key === "Enter") _closeModal(true);
+});
+
+function toast(msg, kind = "") {
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = msg;
+  $("toast-wrap").appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
 
 const SRC = { "cursor":"🟦 Cursor","vscode":"🟦 VS Code","windsurf":"🟦 Windsurf",
   "claude-desktop":"🟧 Claude Desktop","claude-code":"🟧 Claude Code","gemini":"🟪 Gemini",
@@ -323,11 +391,15 @@ function card(m) {
     <p>${esc(m.summary)}</p>
     <details><summary>Show full text</summary><p>${esc(m.content)}</p></details>`;
   const reload = () => { load(); refresh(); };
-  el.querySelector("[data-fav]").onclick = async () => { await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ favorite: !m.favorite }) }); reload(); };
-  el.querySelector("[data-arch]").onclick = async () => { await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ archived: !m.archived }) }); reload(); };
-  el.querySelector("[data-pin]").onclick = async () => {
+  // Surface API failures: an unhandled rejection in an onclick handler is
+  // silently swallowed and just looks like "nothing happened" (e.g. a delete
+  // that appears to do nothing). Wrap every action so errors reach the user.
+  const act = (fn) => async () => { try { await fn(); } catch (e) { toast(e.message || "Action failed.", "bad"); } };
+  el.querySelector("[data-fav]").onclick = act(async () => { await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ favorite: !m.favorite }) }); reload(); });
+  el.querySelector("[data-arch]").onclick = act(async () => { await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ archived: !m.archived }) }); reload(); });
+  el.querySelector("[data-pin]").onclick = act(async () => {
     const t = new Set(m.tags || []); isCore ? t.delete("core") : t.add("core");
-    await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ tags: [...t] }) }); reload(); };
+    await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ tags: [...t] }) }); reload(); });
   el.querySelector("[data-edit]").onclick = () => {
     const det = el.querySelector("details"); if (det) det.style.display = "none";
     el.querySelector("p").outerHTML = `
@@ -335,13 +407,18 @@ function card(m) {
       <input type="text" data-et style="width:100%;margin-top:6px" value="${esc((m.tags||[]).join(", "))}" placeholder="tags">
       <div class="row" style="margin-top:8px"><button class="btn sm" data-save>Save</button><button class="btn ghost sm" data-cancel>Cancel</button></div>`;
     el.querySelector("[data-cancel]").onclick = reload;
-    el.querySelector("[data-save]").onclick = async () => {
+    el.querySelector("[data-save]").onclick = act(async () => {
       const content = el.querySelector("[data-ec]").value.trim();
       const tags = el.querySelector("[data-et]").value.split(",").map(t => t.trim()).filter(Boolean);
-      await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ content, tags }) }); reload(); }; };
-  el.querySelector("[data-del]").onclick = async () => {
-    if (!confirm(`Delete memory #${m.id}? This also removes its vault file.`)) return;
-    await api(`/memories/${m.id}`, { method: "DELETE" }); reload(); };
+      await api(`/memories/${m.id}`, { method: "PATCH", body: JSON.stringify({ content, tags }) }); reload(); }); };
+  el.querySelector("[data-del]").onclick = act(async () => {
+    const ok = await confirmDialog({
+      title: `Delete memory #${m.id}?`,
+      message: "This permanently removes the memory and its vault file.",
+      confirmLabel: "Delete", danger: true });
+    if (!ok) return;
+    await api(`/memories/${m.id}`, { method: "DELETE" });
+    toast(`Deleted memory #${m.id}.`, "good"); reload(); });
   return el;
 }
 
@@ -386,9 +463,9 @@ $("add").onclick = async () => {
   $("add").disabled = true;
   try { const saved = await api("/memories", { method: "POST",
       headers: { "Content-Type": "application/json", "X-Source": "web-ui" }, body: JSON.stringify({ content, tags }) });
-    if (saved.duplicate) alert(`Already known — matches memory #${saved.id}.`);
+    if (saved.duplicate) toast(`Already known — matches memory #${saved.id}.`);
     $("new").value = ""; $("new-tags").value = ""; load(); refresh();
-  } catch (e) { alert(e.message); } $("add").disabled = false;
+  } catch (e) { toast(e.message, "bad"); } $("add").disabled = false;
 };
 $("export").onclick = async () => {
   const data = await api("/export");
@@ -401,8 +478,8 @@ $("import-file").onchange = async (e) => {
   try { const data = JSON.parse(await file.text());
     const memories = (data.memories || data).map(m => ({ content: m.content, tags: m.tags || [] }));
     const r = await api("/import", { method: "POST", body: JSON.stringify({ memories }) });
-    alert(`Imported ${r.imported}, ${r.duplicates} duplicates skipped.`); load(); refresh();
-  } catch (err) { alert("Import failed: " + err.message); } e.target.value = "";
+    toast(`Imported ${r.imported}, ${r.duplicates} duplicates skipped.`, "good"); load(); refresh();
+  } catch (err) { toast("Import failed: " + err.message, "bad"); } e.target.value = "";
 };
 
 refresh(); load(); setInterval(refresh, 15000);

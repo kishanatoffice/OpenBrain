@@ -169,6 +169,12 @@ def _normalize_tags(tags: list[str] | str | None) -> str:
     return json.dumps(cleaned)
 
 
+def _like_escape(s: str) -> str:
+    r"""Escape LIKE wildcards so a literal % or _ in a tag is matched literally,
+    not as a wildcard. Must be paired with ESCAPE '\' in the query."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _pack(vector: list[float]) -> bytes:
     return array("f", vector).tobytes()
 
@@ -363,11 +369,12 @@ class MemoryStore:
     def by_tag(self, tag: str, limit: int = 20) -> list[dict[str, Any]]:
         """Memories carrying `tag`, newest first (archived excluded). Tags are
         stored as a JSON array of lowercased strings."""
-        needle = f'"{tag.strip().lower()}"'
+        needle = _like_escape(f'"{tag.strip().lower()}"')
         with self._connect() as conn:
             rows = conn.execute(
                 f"SELECT {_ROW_COLUMNS} FROM memories "
-                "WHERE archived = 0 AND invalidated_at IS NULL AND tags LIKE ? "
+                "WHERE archived = 0 AND invalidated_at IS NULL "
+                "AND tags LIKE ? ESCAPE '\\' "
                 "ORDER BY created_at DESC, id DESC LIMIT ?",
                 (f"%{needle}%", limit),
             ).fetchall()
@@ -407,13 +414,23 @@ class MemoryStore:
         if favorite:
             where.append("m.favorite = 1")
         if kind in ("core", "auto"):
-            where.append("m.tags LIKE ?"); params.append(f'%"{kind}"%')
+            where.append("m.tags LIKE ? ESCAPE '\\'")
+            params.append("%" + _like_escape(f'"{kind}"') + "%")
         if tag:
-            where.append("m.tags LIKE ?"); params.append(f'%"{tag.strip().lower()}"%')
+            where.append("m.tags LIKE ? ESCAPE '\\'")
+            params.append("%" + _like_escape(f'"{tag.strip().lower()}"') + "%")
 
         cols = ", ".join("m." + c for c in _ROW_COLUMNS.split(", "))
         with self._connect() as conn:
-            if q and _fts_quote(q):
+            if q and q.strip():
+                # The caller issued a search. If the query reduces to nothing
+                # after stopword stripping (e.g. "the a is"), it matched nothing
+                # — return empty rather than silently falling through to the
+                # keyset branch, which would list the entire store and ignore
+                # the search cursor.
+                fts = _fts_quote(q)
+                if not fts:
+                    return {"rows": [], "next": None}
                 offset = 0
                 if after and after.startswith("off:"):
                     try:
@@ -424,7 +441,7 @@ class MemoryStore:
                     f"SELECT {cols} FROM memories_fts f JOIN memories m ON m.id = f.rowid "
                     f"WHERE memories_fts MATCH ? AND {' AND '.join(where)} "
                     "ORDER BY bm25(memories_fts) LIMIT ? OFFSET ?",
-                    (_fts_quote(q), *params, limit + 1, offset),
+                    (fts, *params, limit + 1, offset),
                 ).fetchall()
                 items = [_row_to_dict(r) for r in rows[:limit]]
                 nxt = f"off:{offset + limit}" if len(rows) > limit else None
@@ -500,10 +517,10 @@ class MemoryStore:
             return conn.execute("SELECT count(*) FROM memories").fetchone()[0]
 
     def count_by_tag(self, tag: str) -> int:
-        needle = f'"{tag.strip().lower()}"'
+        needle = _like_escape(f'"{tag.strip().lower()}"')
         with self._connect() as conn:
             return conn.execute(
-                "SELECT count(*) FROM memories WHERE tags LIKE ?",
+                "SELECT count(*) FROM memories WHERE tags LIKE ? ESCAPE '\\'",
                 (f"%{needle}%",),
             ).fetchone()[0]
 
@@ -541,10 +558,14 @@ class MemoryStore:
             )
 
     def missing_embeddings(self, model: str) -> list[dict[str, Any]]:
-        """Memories with no chunk embeddings for the given model."""
+        """Memories with no chunk embeddings for the given model. Whitespace-only
+        content is excluded: it chunks to nothing, so it can never gain an
+        embedding and would otherwise be re-selected on every enrichment tick
+        forever, starving real backfill work."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT m.id, m.content FROM memories m WHERE NOT EXISTS "
+                "SELECT m.id, m.content FROM memories m "
+                "WHERE trim(m.content) != '' AND NOT EXISTS "
                 "(SELECT 1 FROM chunk_embeddings e "
                 " WHERE e.memory_id = m.id AND e.model = ?)",
                 (model,),

@@ -534,14 +534,19 @@ def create_app(config: Config | None = None) -> FastAPI:
         if existing is None:
             raise HTTPException(status_code=404, detail="memory not found")
 
-        if body.content is not None and body.content.strip() != existing["content"]:
-            # Invalidates summary + embeddings; the enricher regenerates both.
-            deps.store.update_content(memory_id, body.content.strip())
-            updated = deps.store.get(memory_id)
-            md_path = updated.get("md_path")
-            # Keep the markdown mirror in step, but never touch user-authored files.
-            if md_path and updated.get("source") != "vault":
-                deps.vault.write_memory(updated, path=md_path)
+        if body.content is not None:
+            # Redact on this write too — editing is a persistence boundary just
+            # like create, so a secret pasted into the edit box must be scrubbed
+            # before it lands in the DB, the vault file, and future injections.
+            cleaned, _ = redact(body.content.strip())
+            if cleaned != existing["content"]:
+                # Invalidates summary + embeddings; the enricher regenerates both.
+                deps.store.update_content(memory_id, cleaned)
+                updated = deps.store.get(memory_id)
+                md_path = updated.get("md_path")
+                # Keep the markdown mirror in step, but never touch user files.
+                if md_path and updated.get("source") != "vault":
+                    deps.vault.write_memory(updated, path=md_path)
 
         if body.tags is not None:
             deps.store.set_tags(memory_id, body.tags)

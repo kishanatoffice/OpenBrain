@@ -84,12 +84,14 @@ def main() -> None:
         try:
             _post("/pause"); print("🔕 memory OFF — tools use only their own context")
         except Exception:
-            print("couldn't reach the daemon (is it running?)")
+            print("couldn't reach the daemon (is it running?)", file=sys.stderr)
+            sys.exit(1)
     elif cmd in ("on", "resume"):
         try:
             _post("/resume"); print("🧠 memory ON — your brain is active again")
         except Exception:
-            print("couldn't reach the daemon (is it running?)")
+            print("couldn't reach the daemon (is it running?)", file=sys.stderr)
+            sys.exit(1)
     elif cmd == "status":
         try:
             d = _get("/stats")
@@ -98,7 +100,8 @@ def main() -> None:
                   f"({d['core']} core, {d['auto']} auto) · "
                   f"used {d['injections']}x this session")
         except Exception:
-            print("brain unreachable — daemon not responding")
+            print("brain unreachable — daemon not responding", file=sys.stderr)
+            sys.exit(1)
     elif cmd in ("dashboard", "ui", "open"):
         import webbrowser
         # Open with the token in the URL (Jupyter-style): the page captures it,
@@ -107,8 +110,12 @@ def main() -> None:
         webbrowser.open(_url("/") + (f"?token={tok}" if tok else ""))
     elif cmd in ("-v", "--version", "version"):
         print(f"openbrain {__version__}")
-    else:
+    elif cmd in ("-h", "--help", "help"):
         print(__doc__)
+    else:
+        print(f"unknown command: {cmd}\n", file=sys.stderr)
+        print(__doc__, file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

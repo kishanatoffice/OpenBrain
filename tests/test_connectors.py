@@ -58,6 +58,16 @@ class RegistryContractCase(unittest.TestCase):
         names = {t["name"] for t in tool_specs_for(None)}
         self.assertEqual(names, {"recall", "remember", "forget", "expand"})
 
+    def test_non_toggleable_connector_is_always_on(self):
+        # The always-on invariant must hold at the connector layer itself, not
+        # only because the server happens to re-add built-ins — an explicit set
+        # that omits "memory" still exposes (and accepts) its tools.
+        self.assertTrue(is_enabled("memory", frozenset()))
+        self.assertTrue(is_enabled("memory", {"something-else"}))
+        names = {t["name"] for t in tool_specs_for(frozenset())}
+        self.assertIn("recall", names)
+        self.assertIn("remember", names)
+
     def test_unknown_tool_has_no_connector(self):
         self.assertIsNone(connector_for_tool("does-not-exist"))
 

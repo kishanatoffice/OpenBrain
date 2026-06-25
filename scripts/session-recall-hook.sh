@@ -16,15 +16,27 @@ set -euo pipefail
 PORT="${OPENBRAIN_PORT:-3111}"
 MAX_TOKENS="${OPENBRAIN_SESSION_TOKENS:-1200}"
 
+# Local API token: /context is gated since auth landed, so without this the
+# daemon answers 401 and session recall silently breaks. Prefer $OPENBRAIN_TOKEN,
+# else read the token file next to the DB ($OPENBRAIN_DATA_DIR or ~/.myagent).
+TOKEN="${OPENBRAIN_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+  TOKEN_FILE="${OPENBRAIN_DATA_DIR:-$HOME/.myagent}/token"
+  [ -f "$TOKEN_FILE" ] && TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
+fi
+
 # Empty query => the daemon returns the most recent memories (standing context).
 block="$(curl -s --max-time 4 --get \
   --data-urlencode "q=" \
   --data-urlencode "max_tokens=${MAX_TOKENS}" \
+  --data-urlencode "token=${TOKEN}" \
   "http://127.0.0.1:${PORT}/context" 2>/dev/null || true)"
 
 [ -z "$block" ] && exit 0
+# Also bail on any JSON error envelope (e.g. a 401 {"detail":...}) so a token
+# misconfig never leaks the error string into the session as if it were memory.
 case "$block" in
-  *"no memories"*|*"No memories"*|*"nothing found"*) exit 0 ;;
+  '{"detail"'*|*"no memories"*|*"No memories"*|*"nothing found"*) exit 0 ;;
 esac
 
 # Emit the SessionStart hook JSON with the memory as additionalContext.
